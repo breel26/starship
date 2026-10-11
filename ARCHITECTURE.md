@@ -2,8 +2,18 @@
 
 A resource / exploration / crafting / scheduling game that starts with 1900-era technology and builds toward a starship and travel to other star systems.
 
-**Stack:** TypeScript · Phaser 3 · Vite · Zod · Vitest
+**Stack:** TypeScript · Phaser (version TBD, see §8) · Zod 4 Mini · Vite · Vitest
 **Principle:** data-driven design. All game content (resources, technologies, buildings, workers, equipment, recipes, eras) lives in JSON. Code defines *rules*; JSON defines *content*.
+**Working rules:** see CLAUDE.md.
+
+### Dependencies
+| Package | Where | Why |
+|---|---|---|
+| Phaser | runtime | rendering, input, scenes |
+| Zod 4 (`zod/mini` only) | runtime | validates built-in data and future expansion/mod packs; types come from schemas via `z.infer`. Adds ~10 KB gzipped with English error messages |
+| TypeScript, Vite, Vitest | dev | compile, bundle, test |
+
+Nothing else without approval. Versions pinned exactly.
 
 ---
 
@@ -22,12 +32,14 @@ Benefits:
 ## 2. Layers
 
 ### 2.1 Data (JSON)
-Every piece of game content is a JSON file under `/data`. Nothing about content is hard-coded.
+Every piece of game content is a JSON file under `/data`, split into one folder per era so files stay small. Nothing about content is hard-coded.
+
+Expansion and mod packs use the same folder format and go through the same validation, so the game is expandable without code changes.
 
 ### 2.2 Registry
 At boot:
-1. Load all JSON files
-2. Validate each against a Zod schema
+1. Load all JSON files (built-in, then any packs) and merge them
+2. Validate each against a Zod 4 Mini schema
 3. Check cross-references (e.g. a recipe input `iron_ore` must exist in `resources.json`; a building's `requiresTech` must exist in `technologies.json`)
 4. Index everything by `id` into a read-only registry
 
@@ -61,24 +73,35 @@ Initial systems:
 
 ```
 /data
-  resources.json
-  buildings.json
-  technologies.json
-  workers.json
-  equipment.json
-  recipes.json
   eras.json
+  /steam            resources.json, buildings.json, recipes.json,
+                    technologies.json, workers.json, equipment.json
+  /…                one folder per era, same files
 /src
-  /data        schemas.ts, loader.ts, registry.ts
-  /sim         state.ts, tick.ts, commands.ts, events.ts
-    /systems   production.ts, scheduling.ts, research.ts,
-               prospecting.ts, logistics.ts
-  /game        Phaser scenes, sprites, input handling
-  /ui          HUD, panels, tooltips
-  /save        serialize.ts, migrations.ts
-/tests         sim + data validation tests
-/assets        sprites, tilesets, audio
+  main.ts           starts Phaser
+  config.ts         tick rate, tile size, constants
+  /core             shared types, ids, event bus, rng (no game logic)
+  /data
+    /schemas        one Zod schema file per content type
+    loader.ts       loads + merges era folders and packs
+    crossref.ts     checks every id reference resolves
+    registry.ts     read-only lookup by id
+  /sim
+    state.ts  tick.ts  commands.ts
+    /systems        production.ts, scheduling.ts, research.ts,
+                    prospecting.ts, logistics.ts
+  /map              generate.ts, fog.ts (pure logic, no Phaser)
+  /render
+    /scenes         BootScene, MapScene, UIScene, MenuScene
+    /sprites        BuildingSprite, DepositSprite, WorkerSprite
+  /ui/panels        BuildPanel, ResearchPanel, InventoryBar, WorkerPanel
+  /save             save.ts, migrations.ts
+/tests              mirrors /src, plus /fixtures with tiny test data
+/tools              dev-only scripts (e.g. export JSON Schema for editor autocomplete)
+/assets             sprites, tilesets, audio
 ```
+
+**Boundaries:** `sim`, `map` and `data` never import Phaser, `render` or `ui`. `render` only reads state; `ui` only sends commands. This lets most changes touch one file, its test and its JSON.
 
 ---
 
@@ -204,7 +227,8 @@ interface GameState {
 
 ## 8. Open questions
 
-- [ ] Fresh repo, or a rebuild that replaces steam-to-stars?
+- [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
+- [ ] Phaser 3 or Phaser 4 (current release is 4.2)?
 - [ ] Map: one tile grid that expands over eras, or separate maps per planet/system?
 - [ ] Real-time with pause, or fully real-time?
 - [ ] How do workers move — pathfinding on the map, or abstract assignment?
