@@ -56,7 +56,8 @@ Initial systems:
 | System | Responsibility |
 |---|---|
 | production | Runs recipes in buildings, consumes inputs, produces outputs |
-| scheduling | Assigns workers to jobs and building slots |
+| scheduling | Decides which worker goes to which building slot (never how they get there) |
+| movement | Moves workers through `idle → travelling → working → returning` using the active movement strategy (see §7) |
 | research | Progresses technologies, unlocks content (research is global, not per world) |
 | prospecting | Reveals mineral deposits when a prospector visits an area |
 | logistics | Moves resources between storage and buildings within one world |
@@ -92,7 +93,11 @@ Initial systems:
   /sim
     state.ts  tick.ts  commands.ts
     /systems        production.ts, scheduling.ts, research.ts,
-                    prospecting.ts, logistics.ts, shipping.ts
+                    prospecting.ts, logistics.ts, shipping.ts, movement.ts
+    /movement       swappable travel strategies (see §7):
+                    types.ts      the Movement interface
+                    distance.ts   straight-line travel time (now)
+                    terrain.ts    distance maps (planned upgrade)
   /map              pure logic, no Phaser:
                     noise.ts      seeded 2D noise (our own, no dependency)
                     galaxy.ts     generates star systems and planets from a seed
@@ -275,6 +280,17 @@ interface Shipment {
   cargo: Record<string, number>;
   arrivesAtTick: number;
 }
+
+interface WorkerInstance {
+  id: string;
+  type: string;                    // worker id from workers.json
+  homeId?: string;                 // housing building
+  targetId?: string;               // building slot they're assigned to
+  state: "idle" | "travelling" | "working" | "returning";
+  x: number; y: number;            // current tile (used by every movement strategy)
+  arrivesAtTick?: number;          // when the current trip ends
+  path?: [number, number][];       // empty until a path-based strategy exists; here now so no save migration is needed
+}
 ```
 
 ---
@@ -323,7 +339,44 @@ Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, cra
 
 ---
 
-## 7. Saving
+## 7. Workers & movement
+
+### Principle
+**Who works where** (scheduling) is separate from **how they get there** (movement). Assignment never changes; the movement strategy can be swapped without touching scheduling, production or saves.
+
+### Worker lifecycle
+Every worker is always in one state: `idle → travelling → working → returning`. Production only checks whether a building's workers are in `working`, so it behaves the same under every movement strategy.
+
+### Movement strategies
+All strategies implement one interface in `src/sim/movement/types.ts`:
+```ts
+interface Movement {
+  // starts a trip; returns ticks until arrival
+  begin(world: WorldState, worker: WorkerInstance, target: Tile): number;
+  // advances a travelling worker by one tick
+  step(world: WorldState, worker: WorkerInstance): void;
+}
+```
+`config.ts` selects the active strategy. Nothing else changes when it's swapped.
+
+| Stage | Strategy | How travel time is set | Status |
+|---|---|---|---|
+| 1 | `distance` | Straight-line distance × walking speed. Building placement matters from day one | **Now** |
+| 2 | `terrain` | When the map changes, compute a distance map around each building giving true walking time from every tile (mountains, swamps and water cost time). Calculated once, not per worker, so it's cheap on phones | Planned first upgrade |
+| 3 | Roads | Workers travel along a road network; dirt road → rail → maglev upgrades follow the eras | Possible later, as an era feature |
+| — | Full walking agents | Each worker pathfinds individually | Not planned; only if stages 1–3 fall short |
+
+Walking speed and terrain costs come from JSON (`workers.json`, `terrains.json`), not code.
+
+### Cosmetic walking
+Separately from the sim, the renderer can draw small workers walking between home and work purely for looks. It lives entirely in `src/render`, reads `x, y`, `state` and the trip timing, and can be added or removed at any time without affecting the game.
+
+### Testing
+A shared test suite runs against every movement strategy. It checks that workers reach `working`, that production only counts present workers, and that saves load the same. Swapping strategies is proven safe by tests, not assumed.
+
+---
+
+## 8. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
 - Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
@@ -332,7 +385,7 @@ Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, cra
 
 ---
 
-## 8. Open questions
+## 9. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
@@ -342,7 +395,7 @@ Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, cra
 - [x] Shared or per-planet stockpiles? → per planet; resources must be shipped between worlds
 - [x] Do other worlds run while the player is away? → yes, every explored world ticks
 - [ ] Real-time with pause, or fully real-time?
-- [ ] How do workers move — pathfinding on the map, or abstract assignment?
+- [x] How do workers move? → abstract assignment with distance-based travel now, terrain distance maps next, roads possibly later; cosmetic walking optional (see §7)
 - [ ] Within one planet: physical transport (carts, rail) or one shared stockpile per planet?
 - [ ] Shipping: what carries cargo (ships as units, a route system?) and how travel time is set
 - [ ] Galaxy size: how many star systems and planets?
@@ -351,7 +404,7 @@ Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, cra
 
 ---
 
-## 9. First milestones
+## 10. First milestones
 
 1. Scaffold Vite + TS + Phaser project
 2. Zod schemas + loader + registry with cross-reference validation
