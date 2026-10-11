@@ -1,10 +1,14 @@
-# Transport by Era — DRAFT FOR REVIEW
+# Transport by Era — Reviewed
 
 Every route and vehicle has an ID (R = route, V = vehicle) so you can comment by number, e.g. "V14: too slow" or "drop R9".
 
 **Speeds** are typical *operating* averages for the year listed (what a real journey averaged), not top speeds or records. Capacities are typical for the period. Items marked 🔮 are speculative or still in development in the real world, so their numbers are best estimates.
 
-**Eras** are a draft; the era list itself is still an open question. Years mark when the item first became practical in the real world.
+**Eras** are the game's 9 eras (see ARCHITECTURE.md). Years mark when the item first became practical in the real world.
+
+**Expandable:** each era's routes and vehicles live in that era's `routes.json` and `vehicles.json`. New routes, vehicles or whole eras are added as new entries; nothing here needs editing to add more. New IDs continue the sequence (R33, V73, X5…).
+
+**Older vehicles stay useful:** nothing is retired when a new era arrives. Horses can work alongside maglev trains; older vehicles just end up doing a smaller share of the work.
 
 **Why real speeds work:** at 1000x, one in-game year passes in about 2 seconds, so even real-world trip times (a 7-month Mars transfer, a 40-year interstellar voyage) stay playable.
 
@@ -223,12 +227,9 @@ Every route and vehicle has an ID (R = route, V = vehicle) so you can comment by
 
 ---
 
-## Questions for you
+## Decisions
 
-1. **Map scale vs real speeds.** One planet map is 128×128 tiles. If a tile is 100 m, the whole map is 12.8 km across: a jet or bullet train would cross it in seconds, so most fast vehicles would feel identical. Options:
-   - **a.** Make tiles bigger (e.g. 1 km per tile → 128 km map). Cars and trains matter on-map; aircraft still don't.
-   - **b.** Keep the map local and add **off-map destinations** at real distances (other cities, regions, continents). Ships, airliners and long-distance rail serve those routes; that's where speed really matters.
-   - **c.** Both: ~1 km tiles plus off-map destinations. *(my suggestion)*
-2. **Is the Starship faster than light** (fiction), or a realistic slower-than-light ship with a multi-decade voyage?
-3. **Do older vehicles stay useful?** E.g. pack mules on mountain trails even after trucks exist (realistic and good for gameplay), or does each era replace the last?
-4. **Era names and year ranges** above are a draft. Keep, rename or re-split?
+1. **Map scale:** 100 m tiles. The view shows at most 12 km and pans; the map starts county-sized (~40 km) and grows with exploration until it can cover a whole world. Fast vehicles get real distances to cover on-map.
+2. **The Starship can be faster than light.** Its mechanic will be designed in a future update; V72 stays a placeholder until then.
+3. **Older vehicles stay useful** and do a smaller share of the work as newer ones arrive.
+4. **Eras** stay as listed here.

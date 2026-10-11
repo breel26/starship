@@ -36,6 +36,8 @@ Every piece of game content is a JSON file under `/data`, split into one folder 
 
 Expansion and mod packs use the same folder format and go through the same validation, so the game is expandable without code changes.
 
+**Everything is expandable, including eras.** Eras, routes, vehicles, buildings and technologies are all data. Adding an era means adding an entry to `eras.json` and a new era folder; nothing in code lists eras by name. Eras are sorted by an `order` number with gaps (100, 200, 300…), so a new era can be slotted between two existing ones (e.g. 250) without renumbering anything or breaking saves.
+
 ### 2.2 Registry
 At boot:
 1. Load all JSON files (built-in, then any packs) and merge them
@@ -85,7 +87,7 @@ Initial systems:
 - Speed is a UI setting, not game state; loading a save always starts paused.
 
 ### 2.4 Presentation (Phaser)
-- Scenes: Boot/Preload, Map (one world at a time), StarMap (choose system and planet), UI overlay, Menus
+- Scenes: Boot/Preload, Map (one world at a time, max 12 km in view), WorldOverview (coarse whole-planet map for jumping around), StarMap (choose system and planet), UI overlay, Menus
 - Reads `GameState` to render; never mutates it directly
 - Sends commands to the sim
 - An **event bus** pushes sim events to the UI (`research:complete`, `deposit:discovered`, `building:idle`, …)
@@ -99,7 +101,8 @@ Initial systems:
 /data
   eras.json
   /steam            resources.json, buildings.json, recipes.json,
-                    technologies.json, workers.json, equipment.json
+                    technologies.json, workers.json, equipment.json,
+                    routes.json, vehicles.json
   /…                one folder per era, same files
   /world            terrains.json, planetTypes.json, galaxy.json, fairStart.json
 /src
@@ -120,18 +123,25 @@ Initial systems:
                     distance.ts   straight-line travel time (now)
                     terrain.ts    distance maps (planned upgrade)
   /map              pure logic, no Phaser:
-                    noise.ts      seeded 2D noise (our own, no dependency)
+                    noise.ts      seeded noise that wraps seamlessly east–west (our own, no dependency)
                     galaxy.ts     generates star systems and planets from a seed
-                    generate.ts   builds a planet's tiles from its planet type
+                    chunks.ts     generates 32×32-tile chunks on demand; cache + discard
+                    generate.ts   builds one chunk's tiles from its planet type
                     fairStart.ts  checks/places guaranteed starting resources
+                    explored.ts   coarse 1 km exploration grid
                     fog.ts        discovery and visibility
   /render
-    /scenes         BootScene, MapScene, StarMapScene, UIScene, MenuScene
+    /scenes         BootScene, MapScene, WorldOverviewScene, StarMapScene,
+                    UIScene, MenuScene
+    chunkView.ts    loads/unloads chunk layers near the camera; full art zoomed in,
+                    one pre-rendered image per chunk zoomed out
+    origin.ts       re-centers render coordinates on the camera (no far-away jitter)
     /sprites        BuildingSprite, DepositSprite, WorkerSprite
   /ui/panels        BuildPanel, ResearchPanel, InventoryBar, WorkerPanel
   /save             save.ts, migrations.ts
 /tests              mirrors /src, plus /fixtures with tiny test data
 /tools              dev-only scripts (e.g. export JSON Schema for editor autocomplete)
+/docs               design references (e.g. transport.md: every route and vehicle by era)
 /assets             sprites, tilesets, audio
 ```
 
@@ -212,11 +222,45 @@ Recipes are separate from buildings so one building can run many recipes and one
 ```
 
 ### Era
+`order` uses gaps of 100 so new eras can be inserted later (e.g. `250` between Diesel and Jet).
 ```json
 {
   "id": "steam",
-  "name": "Age of Steam",
-  "order": 1
+  "name": "Steam",
+  "order": 100,
+  "startYear": 1900
+}
+```
+Current eras: Steam (100, 1900), Diesel (200, 1920), Jet (300, 1945), Information (400, 1970), Modern (500, 2000), Near Future (600, 2030), Orbital (700, 2070), Interplanetary (800, 2120), Interstellar (900, 2200).
+
+### Route
+Routes belong to a `network` (road, rail, water, air, space) with a `grade`. A vehicle's speed on a route is the lower of its own speed and the route's `maxSpeedKmh`, so a Model T is slow on a dirt road and fast on gravel. New routes and vehicles slot in without editing existing entries.
+```json
+{
+  "id": "gravel_road",
+  "name": "Gravel Road",
+  "era": "steam",
+  "network": "road",
+  "grade": 3,
+  "maxSpeedKmh": 40,
+  "cost": { "gravel": 5 },
+  "buildShiftsPerTile": 1
+}
+```
+
+### Vehicle
+Speeds and capacities are real-world typical values for the era (see `docs/transport.md`).
+```json
+{
+  "id": "freight_wagon",
+  "name": "Horse-drawn Freight Wagon",
+  "era": "steam",
+  "network": "road",
+  "minGrade": 2,
+  "speedKmh": 4,
+  "capacity": { "cargoTonnes": 1.5 },
+  "cost": { "wood": 20, "iron_plate": 2 },
+  "upkeep": { "fodder": 1 }
 }
 ```
 
@@ -239,7 +283,8 @@ The generator layers two noise maps (elevation and moisture); `bands` maps each 
 {
   "id": "temperate",
   "name": "Temperate World",
-  "size": [128, 128],
+  "circumferenceKm": 40000,
+  "startRegionKm": 40,
   "bands": [
     { "elevation": [0.0, 0.3], "terrain": "water" },
     { "elevation": [0.3, 0.6], "moisture": [0.7, 1.0], "terrain": "wetland" },
@@ -253,10 +298,10 @@ The generator layers two noise maps (elevation and moisture); `bands` maps each 
 Rules the home planet must satisfy around the landing site. If the generated map falls short, `fairStart.ts` places the missing deposits.
 ```json
 {
-  "radius": 12,
+  "radiusTiles": 50,
   "requires": [
-    { "terrain": "plains", "minTiles": 40 },
-    { "resource": "wood", "minTiles": 15 },
+    { "terrain": "plains", "minTiles": 400 },
+    { "resource": "wood", "minTiles": 150 },
     { "resource": "stone", "minDeposits": 2 },
     { "resource": "coal", "minDeposits": 2 },
     { "resource": "iron_ore", "minDeposits": 2 },
@@ -292,6 +337,9 @@ interface WorldState {
   workers: WorkerInstance[];
   deposits: Deposit[];             // each has discovered: boolean
   tileChanges: TileChange[];       // edits on top of the generated map
+  explored: ExploredGrid;          // 1 km cells, stored compactly (a few MB even for a whole world)
+  routes: RouteSegment[];          // roads, rails etc. the player has built
+  vehicles: VehicleInstance[];
 }
 
 interface Shipment {
@@ -324,8 +372,18 @@ Galaxy → star systems → planets. Every planet is its own map. The early game
 
 ### Procedural generation
 - Everything is generated from seeds: the galaxy from `galaxySeed`, each planet from its own seed. The same seed always produces the same map, so saves store only the seed plus the player's changes.
-- A planet is generated the first time it's visited.
-- Noise is our own small seeded function in `noise.ts` (no dependency).
+- A planet is generated the first time it's visited, and only the chunks near the camera are ever generated (see below).
+- Noise is our own small seeded function in `noise.ts` (no dependency). It **wraps seamlessly east–west** so a planet's map loops like a globe. This must be right from day one: changing the noise later changes every seed and breaks old saves.
+
+### Map scale & chunks
+- **1 tile = 100 m.** The view never shows more than **12 km** (120 tiles) across; the player pans around.
+- **The game starts with a county-sized area** (about 40 × 40 km, 400 × 400 tiles) revealed around the landing site. Exploring reveals more, until the explored map can cover a whole planet (an Earth-sized world is about 400,000 tiles around, roughly 51 billion tiles in total).
+- **Chunks:** the world is split into 32 × 32-tile chunks (3.2 km square). Chunks near the camera are generated from the seed and cached; chunks far away are discarded and regenerate identically when revisited. Memory use stays flat no matter how much is explored.
+- **Exploration** is tracked on a coarse 1 km grid, not per tile, so even a fully explored world takes only a few MB in a save.
+- **Zoom levels:** zoomed in, chunks draw full 64×64 tile art. Zoomed out toward 12 km (where a tile is only ~3 px on a phone), each chunk is drawn as one small pre-rendered image instead.
+- **World overview:** a separate coarse map of the whole planet for jumping to distant areas.
+- **Floating origin:** far from the start, raw coordinates get too large for graphics cards and sprites would jitter. The renderer re-centers its coordinates on the camera; the sim keeps exact integer tile coordinates.
+- **The sim doesn't care about map size.** It only processes buildings, workers, routes and vehicles, never empty tiles, so a huge world doesn't slow ticks down. Terrain-aware movement (§7 stage 2) uses distance maps limited to a radius around each building.
 
 ### Fair start
 The home planet is procedurally generated, but the landing area is guaranteed a reasonable amount of starting resources (see `fairStart.json`). No seed can produce an unwinnable start.
@@ -403,7 +461,28 @@ A shared test suite runs against every movement strategy. It checks that commute
 
 ---
 
-## 8. Saving
+## 8. Transport
+
+### Routes and vehicles
+The full reviewed list (32 routes, 72 vehicles across 9 eras) lives in `docs/transport.md` and becomes each era's `routes.json` and `vehicles.json`.
+
+- **Real-world speeds and trip times.** Each vehicle uses the typical operating speed and capacity of its real-world counterpart in that era, from a horse-drawn wagon (4 km/h) to a jet airliner (900 km/h) to a 7–9-month chemical-rocket trip to Mars. The speed controls make even long real trips playable (at 1000x a year passes in ~2 s).
+- **Speed on a route** = the lower of the vehicle's speed and the route's `maxSpeedKmh`.
+- **Older vehicles stay useful.** Nothing is retired when a new era arrives: horses can work alongside maglev trains. Each vehicle keeps its real speed and capacity, so older ones naturally end up doing a small fraction of the total work, but stay handy where they fit (e.g. pack mules on mountain trails with no infrastructure).
+- **Expandable:** new routes and vehicles are new JSON entries; existing ones never need editing.
+
+### Within a planet
+Goods move physically on the routes and vehicles the player builds (the `logistics` system). Commutes (§7) can later use the same route network (movement stage 3).
+
+### Between worlds
+The `shipping` system uses space vehicles from the Orbital era onward; trip times follow the vehicle (e.g. chemical vs. fusion ships).
+
+### FTL starship
+The Starship can be faster than light. Its mechanic is **deferred to a future update** and will be designed then. Nothing now should assume interstellar travel is slower than light.
+
+---
+
+## 9. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
 - Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
@@ -412,7 +491,7 @@ A shared test suite runs against every movement strategy. It checks that commute
 
 ---
 
-## 9. Open questions
+## 10. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
@@ -423,20 +502,24 @@ A shared test suite runs against every movement strategy. It checks that commute
 - [x] Do other worlds run while the player is away? → yes, every explored world ticks
 - [x] Real-time with pause, or fully real-time? → real-time with pause; speeds 1x, 2x, 10x, 100x, 1000x; 1 tick = 8-hour shift = 2 s at 1x (see §2.3 "Time & speed")
 - [x] How do workers move? → abstract assignment with distance-based travel now, terrain distance maps next, roads possibly later; cosmetic walking optional (see §7)
-- [ ] Within one planet: physical transport (carts, rail) or one shared stockpile per planet?
+- [x] Within one planet: physical transport or a shared stockpile? → physical transport on player-built routes and vehicles (§8, docs/transport.md)
+- [x] Map scale? → 100 m tiles, 12 km max view with panning, county-sized start, grows to a whole world via chunks (§6)
+- [x] Do older vehicles become obsolete? → no; they stay useful and do a smaller share of the work (§8)
 - [ ] Shipping: what carries cargo (ships as units, a route system?) and how travel time is set
 - [ ] Galaxy size: how many star systems and planets?
 - [ ] Does the game keep progressing while it's closed (offline progress)?
-- [ ] Era list and what defines moving to the next era
+- [x] Era list? → 9 eras: Steam, Diesel, Jet, Information, Modern, Near Future, Orbital, Interplanetary, Interstellar; expandable (§2.1, §4 Era)
+- [ ] What defines moving to the next era?
+- [ ] FTL Starship mechanic → deferred to a future update (§8)
 
 ---
 
-## 10. First milestones
+## 11. First milestones
 
 1. Scaffold Vite + TS + Phaser project
 2. Zod schemas + loader + registry with cross-reference validation
 3. Minimal `GameState`, tick loop, command queue
 4. Production system with one building and one recipe, covered by tests
-5. Seeded noise + home planet generation with fair-start check, covered by tests
+5. Seeded wrapping noise + chunk generation + fair-start check, covered by tests
 6. Map scene rendering the home planet and one building
 7. Save/load (seed + changes)
