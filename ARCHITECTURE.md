@@ -2,14 +2,14 @@
 
 A resource / exploration / crafting / scheduling game that starts with 1900-era technology and builds toward a starship and travel to other star systems.
 
-**Stack:** TypeScript · Phaser (version TBD, see §8) · Zod 4 Mini · Vite · Vitest
+**Stack:** TypeScript · Phaser 4 · Zod 4 Mini · Vite · Vitest
 **Principle:** data-driven design. All game content (resources, technologies, buildings, workers, equipment, recipes, eras) lives in JSON. Code defines *rules*; JSON defines *content*.
 **Working rules:** see CLAUDE.md.
 
 ### Dependencies
 | Package | Where | Why |
 |---|---|---|
-| Phaser | runtime | rendering, input, scenes |
+| Phaser 4 (pinned 4.2.1) | runtime | rendering, input, scenes. Chosen over Phaser 3, which stopped getting releases after 3.90 (May 2025); v4 also has a GPU tilemap layer that helps large maps on phones |
 | Zod 4 (`zod/mini` only) | runtime | validates built-in data and future expansion/mod packs; types come from schemas via `z.infer`. Adds ~10 KB gzipped with English error messages |
 | TypeScript, Vite, Vitest | dev | compile, bundle, test |
 
@@ -228,7 +228,7 @@ interface GameState {
 ## 8. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
-- [ ] Phaser 3 or Phaser 4 (current release is 4.2)?
+- [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
 - [ ] Map: one tile grid that expands over eras, or separate maps per planet/system?
 - [ ] Real-time with pause, or fully real-time?
 - [ ] How do workers move — pathfinding on the map, or abstract assignment?

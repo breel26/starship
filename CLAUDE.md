@@ -7,7 +7,7 @@ Read this before making any change. See ARCHITECTURE.md for the design.
 1. **Talk first.** If a change touches more than ~3 files, adds a new system, adds a dependency, or changes the architecture, propose a plan and wait for Buck's OK before writing code.
 2. **Test everything.** Every sim or data change comes with tests. `npm test` and the type-check must pass before committing. Report the results.
 3. **Minimal dependencies.**
-   - Runtime: Phaser and Zod 4 (Mini only). Nothing else.
+   - Runtime: Phaser 4 (pinned 4.2.1) and Zod 4 (Mini only). Nothing else.
    - Dev: TypeScript, Vite, Vitest.
    - Any new package needs Buck's approval and a stated reason. Pin exact versions in `package.json`.
 4. **Small files.** One system, scene, sprite type or UI panel per file. Aim for under ~300 lines; split a file that grows past that.
@@ -19,6 +19,14 @@ Read this before making any change. See ARCHITECTURE.md for the design.
 - `src/render` reads game state; it never mutates it.
 - `src/ui` changes the game only by sending commands to the sim.
 - All game content lives in `/data` JSON. No content (names, costs, recipes, numbers) hard-coded in `src`.
+
+## Phaser 4
+
+This project uses Phaser 4, not Phaser 3. Phaser 4 is new, so don't rely on memory of Phaser 3 examples.
+
+- Before writing or changing Phaser code, read the matching guide in `node_modules/phaser/skills/<topic>/` (e.g. `scenes`, `tilemaps`, `input-keyboard-mouse-touch`, `scale-and-responsive`, `cameras`, `sprites-and-images`, `loading-assets`).
+- If a pattern looks like Phaser 3 (pipelines, `setPipeline`, FX, `BitmapMask`, `Geom.Point`), check `node_modules/phaser/skills/v3-to-v4-migration/` first.
+- Phaser code lives only in `src/render` and `src/ui`.
 
 ## Zod 4 Mini idioms
 
