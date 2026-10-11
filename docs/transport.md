@@ -31,7 +31,7 @@ Every route and vehicle has an ID (R = route, V = vehicle) so you can comment by
 ### Vehicles
 | ID | Vehicle | Year | Speed (km/h) | Carries | Needs |
 |---|---|---|---|---|---|
-| V1 | On foot | — | 5 | 1 person, ~20 kg | any |
+| V1 | On foot | — | 10 (game rule: people move at least at horse pace, see properties P7) | 1 person, ~20 kg | any |
 | V2 | Pack mule | — | 5 | ~90 kg | R1+ |
 | V3 | Riding horse | — | 10 | 1 person | R1+ |
 | V4 | Horse-drawn freight wagon | — | 4 | ~1.5 t | R2+ |

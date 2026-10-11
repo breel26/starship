@@ -141,7 +141,7 @@ Initial systems:
   /save             save.ts, migrations.ts
 /tests              mirrors /src, plus /fixtures with tiny test data
 /tools              dev-only scripts (e.g. export JSON Schema for editor autocomplete)
-/docs               design references (e.g. transport.md: every route and vehicle by era)
+/docs               design references: transport.md (routes and vehicles by era), properties.md (object properties)
 /assets             sprites, tilesets, audio
 ```
 
@@ -150,6 +150,17 @@ Initial systems:
 ---
 
 ## 4. Data shapes (draft)
+
+### Object properties (deep simulation)
+Objects carry realistic physical, economic and human properties from day one, even before a system uses them, so the simulation can deepen without reworking data. The full list (~110 properties with units, defaults and when each is used) is in `docs/properties.md`. Rules:
+- **Units in field names** (`massKg`, `speedKmh`, `meltingPointC`), all metric/SI.
+- **Defaults for every optional field**; entries list only what matters.
+- **Composition and derived values:** objects list their materials (`composition`); mass, value, fire resistance etc. are computed at load. Writing a value explicitly overrides the derived one.
+- **Dormant fields are allowed**; each property is tagged Now / Soon / Later / Future.
+- **Range-checked at load**; new properties are always added with a default so existing JSON keeps working.
+- **People move at least at horse pace** (`walkKmh` ≥ 10) when not aboard a vehicle; aboard one, the vehicle's speed applies.
+
+The examples below show core fields only; see `docs/properties.md` for the rest.
 
 ### Building
 ```json

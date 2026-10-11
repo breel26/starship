@@ -1,4 +1,4 @@
-# Object Properties — DRAFT FOR REVIEW
+# Object Properties — Reviewed
 
 Every property has an ID so you can comment by number, e.g. "M7: use 0–10 instead" or "drop P16".
 
@@ -135,7 +135,7 @@ Worker **types** are templates in `workers.json`; each **person** in the game is
 | P4 | `needs.foodKcalPerDay` | kcal | 2,500 | Soon | food demand |
 | P5 | `needs.waterLPerDay` | L | 3 | Later | water demand |
 | P6 | `needs.housing` | beds | 1 | Now | housing demand |
-| P7 | `walkKmh` | km/h | 5 | Now | commute time |
+| P7 | `walkKmh` | km/h, **minimum 10** | 10 (riding-horse pace, V3) | Now | commute and travel time when not aboard a vehicle; aboard one (e.g. a wagon), the vehicle's speed applies instead. Values below 10 fail validation |
 | P8 | `carryKg` | kg | 25 | Later | hand-carrying goods |
 
 ### Person (game state)
