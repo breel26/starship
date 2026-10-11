@@ -32,7 +32,7 @@ Benefits:
 ## 2. Layers
 
 ### 2.1 Data (JSON)
-Every piece of game content is a JSON file under `/data`, split into one folder per era so files stay small. Nothing about content is hard-coded.
+Every piece of game content is a JSON file under `/data`, split into one folder per era so files stay small. World-generation content (terrains, planet types, galaxy and fair-start rules) lives in `/data/world`. Nothing about content is hard-coded.
 
 Expansion and mod packs use the same folder format and go through the same validation, so the game is expandable without code changes.
 
@@ -49,19 +49,21 @@ Bad data fails loudly at startup, never mid-game.
 - Pure TS systems run on a **fixed tick** (starting point: 4 ticks/sec)
 - World state is a single plain object (`GameState`)
 - Systems read the registry + state and produce the next state
-- Player actions arrive as **commands** (e.g. `{ type: "build", buildingId: "coal_furnace", x: 12, y: 8 }`), validated and applied at the start of a tick
+- Player actions arrive as **commands** (e.g. `{ type: "build", worldId: "home", buildingId: "coal_furnace", x: 12, y: 8 }`), validated and applied at the start of a tick
+- **Every explored world ticks**, whether or not the player is looking at it. Only the visible world is rendered.
 
 Initial systems:
 | System | Responsibility |
 |---|---|
 | production | Runs recipes in buildings, consumes inputs, produces outputs |
 | scheduling | Assigns workers to jobs and building slots |
-| research | Progresses technologies, unlocks content |
+| research | Progresses technologies, unlocks content (research is global, not per world) |
 | prospecting | Reveals mineral deposits when a prospector visits an area |
-| logistics | Moves resources between storage and buildings |
+| logistics | Moves resources between storage and buildings within one world |
+| shipping | Moves cargo between worlds; cargo is in transit for a travel time and arrives in the destination world's stockpile |
 
 ### 2.4 Presentation (Phaser)
-- Scenes: Boot/Preload, Map, UI overlay, Menus
+- Scenes: Boot/Preload, Map (one world at a time), StarMap (choose system and planet), UI overlay, Menus
 - Reads `GameState` to render; never mutates it directly
 - Sends commands to the sim
 - An **event bus** pushes sim events to the UI (`research:complete`, `deposit:discovered`, `building:idle`, …)
@@ -77,6 +79,7 @@ Initial systems:
   /steam            resources.json, buildings.json, recipes.json,
                     technologies.json, workers.json, equipment.json
   /…                one folder per era, same files
+  /world            terrains.json, planetTypes.json, galaxy.json, fairStart.json
 /src
   main.ts           starts Phaser
   config.ts         tick rate, tile size, constants
@@ -89,10 +92,15 @@ Initial systems:
   /sim
     state.ts  tick.ts  commands.ts
     /systems        production.ts, scheduling.ts, research.ts,
-                    prospecting.ts, logistics.ts
-  /map              generate.ts, fog.ts (pure logic, no Phaser)
+                    prospecting.ts, logistics.ts, shipping.ts
+  /map              pure logic, no Phaser:
+                    noise.ts      seeded 2D noise (our own, no dependency)
+                    galaxy.ts     generates star systems and planets from a seed
+                    generate.ts   builds a planet's tiles from its planet type
+                    fairStart.ts  checks/places guaranteed starting resources
+                    fog.ts        discovery and visibility
   /render
-    /scenes         BootScene, MapScene, UIScene, MenuScene
+    /scenes         BootScene, MapScene, StarMapScene, UIScene, MenuScene
     /sprites        BuildingSprite, DepositSprite, WorkerSprite
   /ui/panels        BuildPanel, ResearchPanel, InventoryBar, WorkerPanel
   /save             save.ts, migrations.ts
@@ -186,32 +194,130 @@ Recipes are separate from buildings so one building can run many recipes and one
 }
 ```
 
----
+### Terrain
+```json
+{
+  "id": "pine_forest",
+  "name": "Pine Forest",
+  "buildable": false,
+  "moveCost": 2,
+  "yields": ["wood"],
+  "deposits": { "coal": 0.02 },
+  "tileset": "pine_forest"
+}
+```
 
-## 5. Game state (draft)
+### Planet type
+The generator layers two noise maps (elevation and moisture); `bands` maps each combination to a terrain. A new kind of planet is mostly a new rule table, not new code.
+```json
+{
+  "id": "temperate",
+  "name": "Temperate World",
+  "size": [128, 128],
+  "bands": [
+    { "elevation": [0.0, 0.3], "terrain": "water" },
+    { "elevation": [0.3, 0.6], "moisture": [0.7, 1.0], "terrain": "wetland" },
+    { "elevation": [0.3, 0.6], "moisture": [0.4, 0.7], "terrain": "pine_forest" },
+    { "elevation": [0.3, 0.6], "moisture": [0.0, 0.4], "terrain": "plains" }
+  ]
+}
+```
 
-```ts
-interface GameState {
-  version: number;          // for save migrations
-  tick: number;
-  inventory: Record<string, number>;
-  buildings: BuildingInstance[];
-  workers: WorkerInstance[];
-  research: { completed: string[]; active?: { id: string; progress: number } };
-  map: {
-    width: number;
-    height: number;
-    tiles: Tile[];
-    deposits: Deposit[];    // each has discovered: boolean
-  };
+### Fair start
+Rules the home planet must satisfy around the landing site. If the generated map falls short, `fairStart.ts` places the missing deposits.
+```json
+{
+  "radius": 12,
+  "requires": [
+    { "terrain": "plains", "minTiles": 40 },
+    { "resource": "wood", "minTiles": 15 },
+    { "resource": "stone", "minDeposits": 2 },
+    { "resource": "coal", "minDeposits": 2 },
+    { "resource": "iron_ore", "minDeposits": 2 },
+    { "resource": "clay", "minDeposits": 1 }
+  ]
 }
 ```
 
 ---
 
-## 6. Art & map
+## 5. Game state (draft)
 
+Each world has its own map, buildings, workers and stockpile. Research is shared.
+
+```ts
+interface GameState {
+  version: number;                 // for save migrations
+  tick: number;
+  galaxySeed: number;              // whole galaxy regenerates identically from this
+  research: { completed: string[]; active?: { id: string; progress: number } };
+  activeWorldId: string;           // which world the player is viewing
+  worlds: Record<string, WorldState>; // only explored worlds are stored
+  shipments: Shipment[];           // cargo in transit between worlds
+}
+
+interface WorldState {
+  id: string;
+  systemId: string;
+  planetType: string;
+  seed: number;                    // map regenerates from this; only changes are saved
+  stockpile: Record<string, number>;
+  buildings: BuildingInstance[];
+  workers: WorkerInstance[];
+  deposits: Deposit[];             // each has discovered: boolean
+  tileChanges: TileChange[];       // edits on top of the generated map
+}
+
+interface Shipment {
+  id: string;
+  from: string;                    // world id
+  to: string;
+  cargo: Record<string, number>;
+  arrivesAtTick: number;
+}
+```
+
+---
+
+## 6. Worlds & map generation
+
+### Structure
+Galaxy → star systems → planets. Every planet is its own map. The early game happens entirely on the home planet; other worlds unlock as the eras advance.
+
+### Procedural generation
+- Everything is generated from seeds: the galaxy from `galaxySeed`, each planet from its own seed. The same seed always produces the same map, so saves store only the seed plus the player's changes.
+- A planet is generated the first time it's visited.
+- Noise is our own small seeded function in `noise.ts` (no dependency).
+
+### Fair start
+The home planet is procedurally generated, but the landing area is guaranteed a reasonable amount of starting resources (see `fairStart.json`). No seed can produce an unwinnable start.
+
+### Stockpiles and shipping
+- Each world has its own stockpile. Resources made on one planet can't be used on another until they're shipped there.
+- Shipping is a sim system: cargo leaves one stockpile, spends a travel time in transit, then arrives in the destination stockpile.
+
+### Worlds keep working
+All explored worlds run every tick, so colonies keep producing while the player looks elsewhere. Only the active world is drawn.
+
+### Terrains
+Home planet starts with 8:
+
+| Terrain | Role |
+|---|---|
+| Plains | default buildable land, farming |
+| Pine forest | wood, slows movement |
+| Hills | stone, some ores, buildable |
+| Snowy mountains | rich minerals, impassable or very slow |
+| Red canyon | iron and copper ores, rough ground |
+| Desert | sand (glass later), sparse |
+| Wetland | clay, slow, needs drainage to build |
+| Water | not buildable, fishing and ports later |
+
+Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, crater dust, crystal fields, toxic marsh), for roughly 14–16 total. Some reuse home-planet tile shapes with a new color palette to keep the art workload down.
+
+### Art
 - 64×64 pixel tiles, illustrated fantasy-map style (snowy peaks, dense pines, layered red canyons)
+- Each terrain needs a base tile plus edge tiles for blending into neighbors; this is the main cost of adding a terrain
 - Resources shown icon-sized with a soft glow
 - Undiscovered deposits render as glints until a prospector visits
 
@@ -220,6 +326,7 @@ interface GameState {
 ## 7. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
+- Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
 - `migrations.ts` upgrades older saves when the state shape changes
 - Storage: localStorage to start; file export/import later
 
@@ -229,10 +336,17 @@ interface GameState {
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
-- [ ] Map: one tile grid that expands over eras, or separate maps per planet/system?
+- [x] Map: one grid or separate maps? → separate map per planet, organized into star systems
+- [x] Hand-designed or generated planets? → all procedurally generated from seeds
+- [x] Starting conditions? → guaranteed fair start with enough resources to get going
+- [x] Shared or per-planet stockpiles? → per planet; resources must be shipped between worlds
+- [x] Do other worlds run while the player is away? → yes, every explored world ticks
 - [ ] Real-time with pause, or fully real-time?
 - [ ] How do workers move — pathfinding on the map, or abstract assignment?
-- [ ] Does logistics need physical transport (carts, rail) or is storage global?
+- [ ] Within one planet: physical transport (carts, rail) or one shared stockpile per planet?
+- [ ] Shipping: what carries cargo (ships as units, a route system?) and how travel time is set
+- [ ] Galaxy size: how many star systems and planets?
+- [ ] Does the game keep progressing while it's closed (offline progress)?
 - [ ] Era list and what defines moving to the next era
 
 ---
@@ -243,5 +357,6 @@ interface GameState {
 2. Zod schemas + loader + registry with cross-reference validation
 3. Minimal `GameState`, tick loop, command queue
 4. Production system with one building and one recipe, covered by tests
-5. Map scene rendering tiles and one building
-6. Save/load
+5. Seeded noise + home planet generation with fair-start check, covered by tests
+6. Map scene rendering the home planet and one building
+7. Save/load (seed + changes)
