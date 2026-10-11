@@ -46,7 +46,7 @@ At boot:
 Bad data fails loudly at startup, never mid-game.
 
 ### 2.3 Simulation
-- Pure TS systems run on a **fixed tick** (starting point: 4 ticks/sec)
+- Pure TS systems run on a **fixed tick: one tick = one 8-hour shift**, 3 ticks per in-game day (see "Time & speed" below)
 - World state is a single plain object (`GameState`)
 - Systems read the registry + state and produce the next state
 - Player actions arrive as **commands** (e.g. `{ type: "build", worldId: "home", buildingId: "coal_furnace", x: 12, y: 8 }`), validated and applied at the start of a tick
@@ -56,12 +56,33 @@ Initial systems:
 | System | Responsibility |
 |---|---|
 | production | Runs recipes in buildings, consumes inputs, produces outputs |
-| scheduling | Decides which worker goes to which building slot (never how they get there) |
-| movement | Moves workers through `idle → travelling → working → returning` using the active movement strategy (see §7) |
+| scheduling | Decides which worker goes to which building slot and shift (never how they get there) |
+| movement | Works out each worker's commute, which reduces their output for the shift, using the active movement strategy (see §7) |
 | research | Progresses technologies, unlocks content (research is global, not per world) |
 | prospecting | Reveals mineral deposits when a prospector visits an area |
 | logistics | Moves resources between storage and buildings within one world |
 | shipping | Moves cargo between worlds; cargo is in transit for a travel time and arrives in the destination world's stockpile |
+
+### Time & speed
+- **One tick = one 8-hour shift.** 3 ticks = 1 in-game day.
+- **At 1x, a tick takes 2 seconds**, so a day takes 6 seconds and a year about 37 minutes.
+- All durations in JSON are written in shifts, e.g. `"durationShifts": 3` for a day-long recipe. Nothing is measured in raw seconds or frames.
+- Buildings can run 1, 2 or 3 shifts per day; scheduling assigns crews to shifts.
+
+| Speed | One tick | One day | One year | Ticks per second |
+|---|---|---|---|---|
+| Paused | — | — | — | 0 |
+| 1x | 2 s | 6 s | ~37 min | 0.5 |
+| 2x | 1 s | 3 s | ~18 min | 1 |
+| 10x | 0.2 s | 0.6 s | ~3.7 min | 5 |
+| 100x | 0.02 s | 0.06 s | ~22 s | 50 |
+| 1000x | 0.002 s | 0.006 s | ~2.2 s | 500 |
+
+- The tick size never changes with speed; higher speeds just run more ticks per second. Even 1000x (500 ticks/s) is affordable on a phone because each tick covers a whole shift.
+- **Frame budget:** if a device can't keep up, the game runs as fast as it can and the speed display shows the actual speed achieved, rather than freezing.
+- **Auto-pause options** for key events (research complete, stockpile empty, shipment arrived) so fast speeds don't skip past something important.
+- **Smooth rendering:** at low speeds the renderer interpolates progress bars and animations between ticks; at high speeds it redraws less often.
+- Speed is a UI setting, not game state; loading a save always starts paused.
 
 ### 2.4 Presentation (Phaser)
 - Scenes: Boot/Preload, Map (one world at a time), StarMap (choose system and planet), UI overlay, Menus
@@ -141,7 +162,7 @@ Recipes are separate from buildings so one building can run many recipes and one
   "id": "smelt_iron",
   "inputs": { "iron_ore": 2, "coal": 1 },
   "outputs": { "iron_plate": 1 },
-  "durationTicks": 40,
+  "durationShifts": 1,
   "requiresEquipment": []
 }
 ```
@@ -285,10 +306,11 @@ interface WorkerInstance {
   id: string;
   type: string;                    // worker id from workers.json
   homeId?: string;                 // housing building
-  targetId?: string;               // building slot they're assigned to
-  state: "idle" | "travelling" | "working" | "returning";
-  x: number; y: number;            // current tile (used by every movement strategy)
-  arrivesAtTick?: number;          // when the current trip ends
+  targetId?: string;               // building they're assigned to
+  shift?: 0 | 1 | 2;               // which of the day's three shifts they work
+  state: "idle" | "assigned" | "working";
+  x: number; y: number;            // current tile (home or workplace); used by every movement strategy and the renderer
+  commuteHours?: number;           // cached commute time from the movement strategy
   path?: [number, number][];       // empty until a path-based strategy exists; here now so no save migration is needed
 }
 ```
@@ -345,21 +367,26 @@ Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, cra
 **Who works where** (scheduling) is separate from **how they get there** (movement). Assignment never changes; the movement strategy can be swapped without touching scheduling, production or saves.
 
 ### Worker lifecycle
-Every worker is always in one state: `idle → travelling → working → returning`. Production only checks whether a building's workers are in `working`, so it behaves the same under every movement strategy.
+Every worker is in one state: `idle` (no job), `assigned` (has a job, off shift) or `working` (on shift this tick). Production only counts workers in `working`, so it behaves the same under every movement strategy.
+
+### Commute eats into the shift
+A tick is a whole 8-hour shift, so a walk to work is much shorter than a tick. Travel is therefore not a separate state lasting several ticks. Instead, **commute time reduces the worker's output for that shift**:
+
+`output = (8 − commuteHours) ÷ 8`
+
+A worker with a 2-hour commute produces 6/8 of a full shift. Building placement matters from day one, and a very long commute can make a job pointless.
 
 ### Movement strategies
 All strategies implement one interface in `src/sim/movement/types.ts`:
 ```ts
 interface Movement {
-  // starts a trip; returns ticks until arrival
-  begin(world: WorldState, worker: WorkerInstance, target: Tile): number;
-  // advances a travelling worker by one tick
-  step(world: WorldState, worker: WorkerInstance): void;
+  // hours to travel between two tiles in this world (one way)
+  commuteHours(world: WorldState, from: Tile, to: Tile): number;
 }
 ```
-`config.ts` selects the active strategy. Nothing else changes when it's swapped.
+Results are cached on the worker (`commuteHours`) and recalculated only when the worker's home or job changes, or the map changes. `config.ts` selects the active strategy. Nothing else changes when it's swapped.
 
-| Stage | Strategy | How travel time is set | Status |
+| Stage | Strategy | How commute time is set | Status |
 |---|---|---|---|
 | 1 | `distance` | Straight-line distance × walking speed. Building placement matters from day one | **Now** |
 | 2 | `terrain` | When the map changes, compute a distance map around each building giving true walking time from every tile (mountains, swamps and water cost time). Calculated once, not per worker, so it's cheap on phones | Planned first upgrade |
@@ -369,10 +396,10 @@ interface Movement {
 Walking speed and terrain costs come from JSON (`workers.json`, `terrains.json`), not code.
 
 ### Cosmetic walking
-Separately from the sim, the renderer can draw small workers walking between home and work purely for looks. It lives entirely in `src/render`, reads `x, y`, `state` and the trip timing, and can be added or removed at any time without affecting the game.
+Separately from the sim, the renderer can draw small workers walking between home and work purely for looks. It lives entirely in `src/render`, reads `x, y`, `state`, `commuteHours` and the time within the current shift, and can be added or removed at any time without affecting the game.
 
 ### Testing
-A shared test suite runs against every movement strategy. It checks that workers reach `working`, that production only counts present workers, and that saves load the same. Swapping strategies is proven safe by tests, not assumed.
+A shared test suite runs against every movement strategy. It checks that commute times are never negative, that a worker living at their workplace has zero commute, that output follows the commute formula, that production only counts working workers, and that saves load the same. Swapping strategies is proven safe by tests, not assumed.
 
 ---
 
@@ -394,7 +421,7 @@ A shared test suite runs against every movement strategy. It checks that workers
 - [x] Starting conditions? → guaranteed fair start with enough resources to get going
 - [x] Shared or per-planet stockpiles? → per planet; resources must be shipped between worlds
 - [x] Do other worlds run while the player is away? → yes, every explored world ticks
-- [ ] Real-time with pause, or fully real-time?
+- [x] Real-time with pause, or fully real-time? → real-time with pause; speeds 1x, 2x, 10x, 100x, 1000x; 1 tick = 8-hour shift = 2 s at 1x (see §2.3 "Time & speed")
 - [x] How do workers move? → abstract assignment with distance-based travel now, terrain distance maps next, roads possibly later; cosmetic walking optional (see §7)
 - [ ] Within one planet: physical transport (carts, rail) or one shared stockpile per planet?
 - [ ] Shipping: what carries cargo (ships as units, a route system?) and how travel time is set
