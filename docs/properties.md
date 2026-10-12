@@ -18,7 +18,30 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
    - **Later** — expected expansions (fire, power grid, pollution, health)
    - **Future** — possible deep-simulation features
 6. **Validated.** Every field has an allowed range checked at load (e.g. `hardnessMohs` 1–10). Bad data fails loudly.
-7. **Expandable.** New properties are added with a default, so existing JSON keeps working. `tags` (S7) allows ad-hoc labels without a schema change.
+7. **Value and energy are in GORE.** All prices, power, energy, wages and food use GORE (see "Value in GORE" below).
+8. **Expandable.** New properties are added with a default, so existing JSON keeps working. `tags` (S7) allows ad-hoc labels without a schema change.
+
+---
+
+## Value in GORE
+
+**GORE** (Geosynchronous ORbital Energy) is the game's currency and energy unit.
+
+- **1 GORE = 13,800 kcal = 57.7 MJ**, the energy needed to lift 1 kg from the surface to geosynchronous orbit.
+- **Power is measured in GORE per tick** (one 8-hour shift). **1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW**; 1 hp ≈ 0.372 GORE/tick.
+- **Value = mass in kg + power in GORE/tick × 100.** Anything that can do work is worth its weight plus 100 ticks of its output. The 100-tick **value window** is one tunable number in the data, to adjust after play-testing.
+- **Things that run for minutes, not ticks** (rockets, engine burns): the premium is the energy they can actually deliver within the value window.
+- **Unpowered things** (a wagon, a barge, a bag of iron ore) are worth their mass: 1 GORE per kg.
+
+| Example | Mass | Power | Value |
+|---|---|---|---|
+| Iron ore, 1 kg | 1 kg | — | 1 GORE |
+| Person | 70 kg | 0.04 GORE/tick (0.1 hp) | 74 GORE |
+| Horse | 500 kg | 0.37 GORE/tick (1 hp) | 537 GORE |
+| Model T | 540 kg | 7.4 GORE/tick (20 hp) | 1,284 GORE |
+| Cat 335 excavator | 34,900 kg | 101.5 GORE/tick (273 hp) | 45,054 GORE |
+
+Per-vehicle values are in `transport.md`.
 
 ---
 
@@ -31,7 +54,7 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 | S3 | `era` | era id | required (except materials found in nature) | Now |
 | S4 | `description` | text | "" | Now |
 | S5 | `icon` | sprite id | same as `id` | Now |
-| S6 | `baseValue` | currency units | derived: materials + labor | Now |
+| S6 | `valueGore` | GORE | derived: `massKg` + `powerGorePerTick` × value window | Now |
 | S7 | `tags` | list of text | [] | Now |
 | S8 | `massKg` | kg | derived from `composition` | Soon |
 | S9 | `sizeM` | [length, width, height] m | none | Soon |
@@ -50,7 +73,7 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 | M5 | `compressiveStrengthMPa` | MPa | 0 | Later | foundations, tall buildings |
 | M6 | `meltingPointC` | °C | none (doesn't melt) | Soon | smelting temperatures, furnace tiers |
 | M7 | `ignitionPointC` | °C | none (non-flammable) | Later | fire spread, storage risk |
-| M8 | `energyMJPerKg` | MJ/kg | 0 | Now | fuel value (coal ≈ 24, diesel ≈ 45) |
+| M8 | `energyGorePerKg` | GORE/kg | 0 | Now | fuel value (coal ≈ 0.42, diesel ≈ 0.78) |
 | M9 | `thermalConductivityWmK` | W/m·K | 1 | Future | insulation, heat |
 | M10 | `electricalConductivitySm` | S/m | 0 | Future | wiring, power grid |
 | M11 | `corrosionResistance` | 0–1 | 0.5 | Later | durability, rust |
@@ -70,9 +93,9 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 | I2 | `durability.maxCondition` | 0–100 | 100 | Soon | wear and breakdown |
 | I3 | `durability.wearPerShift` | condition/shift | 0.05 | Soon | how fast it wears out |
 | I4 | `maintenance` | { material: amount per 100 shifts } | {} | Soon | spare parts upkeep |
-| I5 | `powerKw` | kW (negative = generates) | 0 | Later | power grid |
+| I5 | `powerGorePerTick` | GORE/tick (negative = consumes from grid) | 0 | Now | work output; adds to value; power grid later |
 | I6 | `fuel` | { resource, perShift } | none | Soon | fuel consumption |
-| I7 | `heatOutputKw` | kW | 0 | Future | heat, comfort |
+| I7 | `heatGorePerTick` | GORE/tick | 0 | Future | heat, comfort |
 | I8 | `pollution` | { type: amount per shift } | {} | Later | air/water/soil pollution |
 | I9 | `noiseDb` | dB | 0 | Future | neighbor comfort |
 | I10 | `fireResistance` | 0–1 | derived from composition | Later | fire damage |
@@ -85,13 +108,13 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 
 | ID | Field | Type / unit | Default | Used | Drives |
 |---|---|---|---|---|---|
-| B1 | `footprintTiles` | [w, h] tiles (100 m each) | [1, 1] | Now | placement |
+| B1 | `footprintTiles` | [w, h] tiles (100 m each) | [1, 1] | Now | placement; **one building per tile**, except housing |
 | B2 | `heightM` | m | 10 | Future | skyline, line of sight |
 | B3 | `buildShifts` | shifts | **required** | Now | construction time |
 | B4 | `requiredTerrain` | list of terrain ids | any buildable | Now | where it can go |
 | B5 | `workerSlots` | [{ role, count }] | [] | Now | jobs |
 | B6 | `maxShiftsPerDay` | 1–3 | 3 | Now | night shifts |
-| B7 | `housingCapacity` | people | 0 | Now | homes |
+| B7 | `housingCapacity` | people per tile | 0 (10 for housing) | Now | homes; **a housing tile holds 10 people** |
 | B8 | `storageM3` | m³ | 0 | Now | stockpile space |
 | B9 | `storageForms` | list of forms (see M1) | [packaged] | Soon | silos vs tanks vs warehouses |
 | B10 | `foundationLoadKPa` | kPa | 100 | Later | needs terrain with enough bearing capacity (T6) |
@@ -131,8 +154,8 @@ Worker **types** are templates in `workers.json`; each **person** in the game is
 |---|---|---|---|---|---|
 | P1 | `skills` | { skill: starting level 0–100 } | {} | Now | who can do which job |
 | P2 | `trainingShifts` | shifts | 0 | Soon | time to train into this role |
-| P3 | `wage` | currency per shift | 0 | Soon | labor cost |
-| P4 | `needs.foodKcalPerDay` | kcal | 2,500 | Soon | food demand |
+| P3 | `wageGorePerTick` | GORE/tick | 0 | Soon | labor cost |
+| P4 | `needs.foodGorePerTick` | GORE/tick | 0.06 (≈ 2,500 kcal/day) | Soon | food demand. A person eats more energy (0.06/tick) than they put out as work (0.04/tick), as in real life |
 | P5 | `needs.waterLPerDay` | L | 3 | Later | water demand |
 | P6 | `needs.housing` | beds | 1 | Now | housing demand |
 | P7 | `walkKmh` | km/h, **minimum 10** | 10 (riding-horse pace, V3) | Now | commute and travel time when not aboard a vehicle; aboard one (e.g. a wagon), the vehicle's speed applies instead. Values below 10 fail validation |
@@ -220,15 +243,19 @@ Worker **types** are templates in `workers.json`; each **person** in the game is
   "offRoad": true
 }
 ```
-Derived at load: `massKg` 390, `fireResistance` low (mostly wood), `baseValue` from wood + iron + labor.
+Derived at load: `massKg` 390, `valueGore` 390 (unpowered, so mass only), `fireResistance` low (mostly wood).
 
 ---
 
-## Questions for you
+## Decisions
 
-1. **Buildings vs 100 m tiles.** A tile is a hectare, bigger than most single buildings. Options:
-   - **a.** One building or compound per tile, sized as a "site" (a farm, a mine head, a factory complex, a block of houses). Simple and readable at 12 km zoom. *(my suggestion)*
-   - **b.** Several small buildings per tile on a finer sub-grid. More detail, but much more UI and rendering work.
-2. **Money:** one abstract currency for `baseValue` and wages, or barter/resources only in the early eras?
-3. **People:** individuals for now, with the option to group large populations later (same fields either way). OK?
-4. **Anything missing?** E.g. noise, weather, crime, education buildings, quality grades of goods.
+1. **Buildings:** one building per 100 m tile, except housing, where one tile houses 10 people.
+2. **Currency:** GORE (1 GORE = 13,800 kcal = 57.7 MJ). Value = mass + 100 ticks of power output.
+3. **Power:** everything is in GORE per tick.
+4. **People:** modeled individually for now, with the option to group large populations later.
+
+## Open questions
+
+1. **Processing adds no value yet.** Under the mass rule, 1 kg of iron ore and 1 kg of steel are both worth 1 GORE. Should the work spent making something (its "embodied energy") add to its value?
+2. **Fuel:** should a fuel's stored energy (coal 0.42, diesel 0.78 GORE/kg) add to its value on top of its mass?
+3. **Housing density:** is 10 people per tile fixed, or can later eras raise it (apartments, arcologies)?

@@ -100,6 +100,7 @@ Initial systems:
 ```
 /data
   eras.json
+  economy.json      GORE constants and the value window (starts at 100 ticks)
   /steam            resources.json, buildings.json, recipes.json,
                     technologies.json, workers.json, equipment.json,
                     routes.json, vehicles.json
@@ -159,6 +160,17 @@ Objects carry realistic physical, economic and human properties from day one, ev
 - **Dormant fields are allowed**; each property is tagged Now / Soon / Later / Future.
 - **Range-checked at load**; new properties are always added with a default so existing JSON keeps working.
 - **People move at least at horse pace** (`walkKmh` ≥ 10) when not aboard a vehicle; aboard one, the vehicle's speed applies.
+
+### Economy: GORE
+- **GORE** (Geosynchronous ORbital Energy) is the currency and the energy unit: **1 GORE = 13,800 kcal = 57.7 MJ**, the energy to lift 1 kg from the surface to geosynchronous orbit.
+- **Power is in GORE per tick** (1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW). Energy, fuel, wages and food are all in GORE too, so the game never converts units.
+- **Value = mass in kg + power in GORE/tick × value window.** The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
+- Things that run for less than a tick (rockets, engine burns) get a premium equal to the energy they can deliver within the window.
+- `valueGore` is what something is **worth**; `cost` is the **materials needed to build it**. They're separate fields.
+- Examples: person 74, horse 537, Model T 1,284, Cat 335 excavator 45,054 GORE. Every vehicle's value is in `docs/transport.md`.
+
+### Buildings and tiles
+One building per 100 m tile, except housing: a housing tile holds 10 people.
 
 The examples below show core fields only; see `docs/properties.md` for the rest.
 
@@ -520,6 +532,11 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 - [ ] Galaxy size: how many star systems and planets?
 - [ ] Does the game keep progressing while it's closed (offline progress)?
 - [x] Era list? → 9 eras: Steam, Diesel, Jet, Information, Modern, Near Future, Orbital, Interplanetary, Interstellar; expandable (§2.1, §4 Era)
+- [x] Currency? → GORE; value = mass + 100 ticks of power output (§4 Economy)
+- [x] Buildings per tile? → one, except housing (10 people per tile)
+- [ ] Should processing ("embodied energy") add value? Iron ore and steel are both 1 GORE/kg under the mass rule
+- [ ] Should a fuel's stored energy add to its value?
+- [ ] Is housing fixed at 10 people per tile, or can later eras raise it?
 - [ ] What defines moving to the next era?
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 

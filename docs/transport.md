@@ -216,6 +216,94 @@ Every route and vehicle has an ID (R = route, V = vehicle) so you can comment by
 
 ---
 
+## Values in GORE
+
+How values are worked out (see ARCHITECTURE.md §5a):
+- **Value = mass in kg + power in GORE/tick × 100** (the 100-tick value window; tunable after play-testing).
+- **1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW**; 1 hp ≈ 0.372 GORE/tick. Power is the vehicle's sustained engine output.
+- **Unpowered vehicles** (wagons, barges, sailing ships, cargo pods) are worth their mass only; the horses, mules, wind or launcher doing the work are valued separately.
+- **Things that run for minutes, not ticks** (rockets, departure burns): the premium is the energy they can actually deliver within the 100-tick window, i.e. the energy of the launches or burns possible in that time.
+- **Jet aircraft:** power is estimated as cruise thrust × cruise speed.
+- **Rail:** locomotives are valued without their cars. Rolling stock is separate: freight car ~15,000 GORE, passenger coach ~40,000 GORE (mass only).
+- Masses and powers are approximate (±30%) real-world figures; 🔮 items are best estimates.
+
+| ID | Vehicle | Mass (kg) | Power (GORE/tick) | Value (GORE) | Notes |
+|---|---|---|---|---|---|
+| V1 | On foot (person) | 70.0 | 0.04 | **73.7** |  |
+| V2 | Pack mule | 400 | 0.26 | **426** |  |
+| V3 | Riding horse | 500 | 0.37 | **537** |  |
+| V4 | Horse-drawn freight wagon | 600 | 0 | **600** | unpowered; horses priced separately |
+| V5 | Stagecoach / carriage | 1,100 | 0 | **1,100** | unpowered; horses separate |
+| V6 | Bicycle | 18.0 | 0 | **18.0** | rider supplies the power |
+| V7 | Steam traction engine | 12,000 | 18.6 | **13,860** |  |
+| V8 | Early automobile (Model T) | 540 | 7.4 | **1,284** |  |
+| V9 | Early motor truck | 3,000 | 11.2 | **4,116** |  |
+| V10 | Steam freight locomotive | 100,000 | 558 | **155,793** | locomotive + tender; cars separate |
+| V11 | Steam passenger locomotive | 90,000 | 446 | **134,634** | locomotive + tender; coaches separate |
+| V12 | Electric streetcar | 15,000 | 29.8 | **17,976** |  |
+| V13 | Subway motor car | 35,000 | 149 | **49,878** | per car (~80 people); train = several cars |
+| V14 | Canal barge | 25,000 | 0 | **25,000** | towed by mules/horses |
+| V15 | River steam towboat | 300,000 | 186 | **318,598** | barges separate |
+| V16 | Sailing schooner | 300,000 | 0 | **300,000** | wind-powered; no engine premium |
+| V17 | Steam cargo ship | 2,500,000 | 558 | **2,555,793** |  |
+| V18 | Ocean liner | 35,000,000 | 28,268 | **37,826,828** | Lusitania class |
+| V19 | Airship (early Zeppelin) | 13,000 | 162 | **29,180** |  |
+| V20 | Early biplane | 500 | 29.8 | **3,476** |  |
+| V21 | Passenger car (1920s–30s) | 1,000 | 14.9 | **2,488** |  |
+| V22 | Bus | 6,000 | 27.9 | **8,790** |  |
+| V23 | Motor truck | 5,000 | 22.3 | **7,232** |  |
+| V24 | Crawler tractor | 9,000 | 22.3 | **11,232** |  |
+| V25 | Diesel-electric freight locomotive | 104,000 | 502 | **154,213** | one unit; cars separate |
+| V26 | Streamliner passenger train | 97,000 | 223 | **119,317** | whole articulated trainset |
+| V27 | Interurban railcar | 40,000 | 149 | **54,878** |  |
+| V28 | Diesel motor ship | 4,000,000 | 1,488 | **4,148,780** |  |
+| V29 | Large airship (Graf Zeppelin) | 67,000 | 1,023 | **169,287** |  |
+| V30 | Prop airliner (DC-3) | 7,650 | 893 | **96,918** |  |
+| V31 | Flying boat (Clipper) | 11,200 | 1,413 | **152,541** |  |
+| V32 | Car (1950s) | 1,600 | 55.8 | **7,179** |  |
+| V33 | Semi tractor-trailer | 12,000 | 74.4 | **19,439** | tractor + empty trailer |
+| V34 | Long-range prop airliner (Constellation) | 25,500 | 3,720 | **397,451** |  |
+| V35 | Jet airliner (707) | 66,400 | 10,043 | **1,070,668** | jet power ≈ cruise thrust × speed |
+| V36 | Cargo turboprop (C-130 class) | 28,000 | 5,579 | **585,927** |  |
+| V37 | Helicopter | 2,260 | 223 | **24,577** |  |
+| V38 | Early container ship | 6,000,000 | 2,232 | **6,223,171** |  |
+| V39 | Oil tanker / bulk carrier | 18,000,000 | 9,299 | **18,929,878** |  |
+| V40 | Bullet train (Shinkansen) | 700,000 | 4,426 | **1,142,622** | 12-car set |
+| V41 | Hovercraft (SR.N4) | 165,000 | 5,059 | **670,854** |  |
+| V42 | Expendable rocket (Saturn V class) | 182,000 | per use | **381,171** | premium = energy of its one launch |
+| V43 | Wide-body jet (747) | 162,000 | 21,573 | **2,319,316** | jet power ≈ cruise thrust × speed |
+| V44 | Supersonic transport (Concorde) | 78,700 | 72,530 | **7,331,747** | jet power ≈ cruise thrust × speed |
+| V45 | High-speed train (TGV) | 385,000 | 3,217 | **706,738** | whole trainset |
+| V46 | Light rail vehicle | 32,000 | 149 | **46,878** |  |
+| V47 | Large container ship | 20,000,000 | 18,598 | **21,859,756** |  |
+| V48 | Space Shuttle | 286,500 | per use | **468,352** | premium = energy of one launch (~1 per window) |
+| V49 | Maglev train (Shanghai) | 300,000 | 4,984 | **798,414** | motors are in the track |
+| V50 | 350 km/h high-speed train | 447,000 | 4,389 | **885,902** | 8-car set |
+| V51 | Electric / autonomous truck | 17,000 | 186 | **35,598** | tractor + empty trailer |
+| V52 | Cargo drone | 10.0 | 1.0 | **110** |  |
+| V53 | Ultra-large container ship | 60,000,000 | 29,756 | **62,975,609** |  |
+| V54 | Reusable rocket (Falcon 9 class) | 30,000 | per use | **73,298** | premium = energy of one launch (~1 per window) |
+| V55 | Super-heavy reusable rocket 🔮 | 300,000 | per use | **757,228** | premium = energy of one launch |
+| V56 | Electric air taxi (eVTOL) 🔮 | 1,800 | 74.4 | **9,239** |  |
+| V57 | Long-distance maglev 🔮 | 400,000 | 9,968 | **1,396,829** | 16-car set |
+| V58 | Vacuum tube train pod 🔮 | 15,000 | 372 | **52,195** |  |
+| V59 | Hypersonic transport (Mach 5) 🔮 | 60,000 | 175,933 | **17,653,288** | jet power ≈ cruise thrust × speed |
+| V60 | Suborbital point-to-point rocket 🔮 | 300,000 | per use | **757,228** | premium = energy of one launch |
+| V61 | Autonomous truck convoy 🔮 | 85,000 | 930 | **177,988** | 5 trucks |
+| V62 | Orbital tug 🔮 | 5,000 | 49.8 | **9,984** | electric propulsion, continuous |
+| V63 | Lunar shuttle (chemical) 🔮 | 30,000 | per use | **125,256** | premium = ~5 trips per window |
+| V64 | Mass driver cargo pod 🔮 | 200 | 0 | **200** | unpowered; the mass driver does the work |
+| V65 | Space elevator climber 🔮 | 10,000 | 8,146 | **824,573** | lifting 20 t at 200 km/h |
+| V66 | Chemical transfer ship 🔮 | 100,000 | per use | **252,409** | premium = one departure burn |
+| V67 | Nuclear thermal ship 🔮 | 150,000 | per use | **212,349** | premium = one departure burn |
+| V68 | Ion / solar-electric cargo hauler 🔮 | 50,000 | 4,988 | **548,786** | 10 MW, thrusts continuously |
+| V69 | Fusion torch ship 🔮 | 500,000 | 4,984,145 | **498,914,498** | 10 GW drive, continuous |
+| V70 | Light-sail probe 🔮 | 0.001 | 0 | **0.001** | the laser array does the work |
+| V71 | Fusion colony ship 🔮 | 100,000,000 | — | **100,000,000** | drive premium TBD with interstellar mechanics |
+| V72 | The Starship | — | — | TBD | designed with the FTL mechanic |
+
+---
+
 ## Also worth considering (not on your list)
 
 | ID | Item | Year | Why |
