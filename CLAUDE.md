@@ -19,6 +19,7 @@ Read this before making any change. See ARCHITECTURE.md for the design.
 - `src/render` reads game state; it never mutates it.
 - `src/ui` changes the game only by sending commands to the sim.
 - All game content lives in `/data` JSON. No content (names, costs, recipes, numbers) hard-coded in `src`.
+- **Every gameplay number is tunable from JSON.** Costs, durations, rates, chances, multipliers and limits come from `/data` (per-item values in content files, global knobs in `/data/balance.json`). Code holds only unit definitions, engine settings and formulas. When adding a mechanic, add its knobs to `balance.json` with a neutral default (usually 1.0) and a range check.
 
 ## Phaser 4
 

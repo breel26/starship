@@ -103,7 +103,8 @@ Initial systems:
 ```
 /data
   eras.json
-  economy.json      GORE constants and the value window (starts at 100 ticks)
+  balance.json      every tuning knob and global multiplier (see §11)
+  economy.json      reference constants (GORE in joules, hp in watts)
   fields.json       research fields (physics, chemistry, medicine; more later)
   /steam            resources.json, buildings.json, recipes.json,
                     technologies.json, scientists.json, workers.json, equipment.json,
@@ -112,7 +113,7 @@ Initial systems:
   /world            terrains.json, planetTypes.json, galaxy.json, fairStart.json
 /src
   main.ts           starts Phaser
-  config.ts         tick rate, tile size, constants
+  config.ts         engine-only settings (art tile pixels, chunk size); gameplay numbers live in /data
   /core             shared types, ids, event bus, rng (no game logic)
   /data
     /schemas        one Zod schema file per content type
@@ -146,7 +147,7 @@ Initial systems:
   /ui/panels        BuildPanel, ResearchPanel, InventoryBar, WorkerPanel
   /save             save.ts, migrations.ts
 /tests              mirrors /src, plus /fixtures with tiny test data
-/tools              dev-only scripts (e.g. export JSON Schema for editor autocomplete)
+/tools              dev-only scripts: JSON Schema export for editor autocomplete, balanceReport.ts (§11)
 /docs               design references: transport.md (routes and vehicles by era), properties.md (object properties),
                     tech-tree-physics.md (example research tree)
 /assets             sprites, tilesets, audio
@@ -170,7 +171,7 @@ Objects carry realistic physical, economic and human properties from day one, ev
 ### Economy: GORE
 - **GORE** (Geosynchronous ORbital Energy) is the currency and the energy unit: **1 GORE = 13,800 kcal = 57.7 MJ**, the energy to lift 1 kg from the surface to geosynchronous orbit.
 - **Power is in GORE per tick** (1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW). Energy, fuel, wages and food are all in GORE too, so the game never converts units.
-- **Value = mass + manufacturing energy + stored energy + work premium.** Mass is 1 GORE per kg. Manufacturing energy is the energy spent making it, summed through the recipe chain (raw materials have none). Stored energy is what fuel, food and (later) batteries hold: 1 kg of coal is worth about 1.42 GORE before mining costs, 1 kg of diesel about 1.78 plus refining. The work premium is power in GORE/tick × the value window, for things that can do work. The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
+- **Value = mass + manufacturing energy + stored energy + work premium.** Mass is 1 GORE per kg. Manufacturing energy is the energy spent making it, summed through the recipe chain (raw materials have none). Stored energy is what fuel, food and (later) batteries hold: 1 kg of coal is worth about 1.42 GORE before mining costs, 1 kg of diesel about 1.78 plus refining. The work premium is power in GORE/tick × the value window, for things that can do work. The window starts at **100 ticks** and lives in `/data/balance.json` so it can be tuned after play-testing without touching code.
 - **Manufacturing energy is calculated, not typed in:** each recipe run uses (building power + workers' work output) × duration; outputs are worth their inputs' value plus that energy. The registry computes this at load by walking the recipe graph, and an item can override it.
 - Things that run for less than a tick (rockets, engine burns) get a premium equal to the energy they can deliver within the window.
 - `valueGore` is what something is **worth**; `cost` is the **materials needed to build it**. They're separate fields.
@@ -519,7 +520,7 @@ interface Movement {
   commuteHours(world: WorldState, from: Tile, to: Tile): number;
 }
 ```
-Results are cached on the worker (`commuteHours`) and recalculated only when the worker's home or job changes, or the map changes. `config.ts` selects the active strategy. Nothing else changes when it's swapped.
+Results are cached on the worker (`commuteHours`) and recalculated only when the worker's home or job changes, or the map changes. `balance.json` selects the active strategy. Nothing else changes when it's swapped.
 
 | Stage | Strategy | How commute time is set | Status |
 |---|---|---|---|
@@ -626,7 +627,61 @@ Research math, discovery rolls (with a fixed seed), scientist arrival windows, q
 
 ---
 
-## 11. Saving
+## 11. Balancing & tuning
+
+The game will be rebalanced continuously: RP earned and RP costs, durations, GORE costs and values, resource availability and more. **Every number that affects gameplay is adjustable in JSON**; none is hard-coded in `src`.
+
+### Two layers of knobs
+1. **Per-item values** in the content files: each tech's `costRp`, each recipe's `durationShifts`, each lab's `rpPerTick` and `fundingGorePerTick`, each deposit's size, each vehicle's speed, and so on. Use these to fix one thing.
+2. **Global multipliers** in **`/data/balance.json`**: one place to scale a whole category at once (e.g. "all research costs ×1.2") without editing hundreds of entries. Multipliers can also be set per research field, per era or per resource where it's useful.
+
+The registry applies the multipliers once at load, so the sim always reads final numbers, and the build screens and tech tree show the balanced values.
+
+### What `balance.json` covers (starting values)
+```json
+{
+  "time":      { "secondsPerTickAt1x": 2, "speeds": [1, 2, 10, 100, 1000] },
+  "economy":   { "valueWindowTicks": 100, "goreCostMultiplier": 1.0 },
+  "research":  {
+    "rpEarnedMultiplier": 1.0,
+    "rpCostMultiplier": 1.0,
+    "byField": { "physics": { "rpCostMultiplier": 1.0 } },
+    "discoveryChanceMultiplier": 1.0,
+    "discoveryRpLump": 0.25,
+    "scientistBonusMultiplier": 1.0,
+    "scientistArrivalMultiplier": 1.0
+  },
+  "construction": {
+    "durationMultiplier": 1.0,
+    "materialCostMultiplier": 1.0,
+    "laborSpeedupLimit": 2.0
+  },
+  "production": { "durationMultiplier": 1.0, "outputMultiplier": 1.0 },
+  "resources": {
+    "abundanceMultiplier": 1.0,
+    "depositSizeMultiplier": 1.0,
+    "byResource": { "iron_ore": { "abundanceMultiplier": 1.0 } }
+  },
+  "workers":   { "commuteMultiplier": 1.0, "foodNeedMultiplier": 1.0, "wageMultiplier": 1.0 },
+  "transport": { "speedMultiplier": 1.0, "capacityMultiplier": 1.0 },
+  "world":     { "tileMeters": 100, "startRegionKm": 40, "fairStartMultiplier": 1.0 }
+}
+```
+New knobs are added with a default of 1.0 (or the current value), so existing saves and data keep working.
+
+### What stays in code
+Only things that aren't gameplay choices: unit definitions (1 GORE = 57,739,200 J, 1 hp = 745.7 W), engine settings (art tile size in pixels, chunk size, render budgets) and the rules themselves (formulas). The physical constants live in `/data/economy.json` as reference values; `balance.json` holds the knobs.
+
+### Tools for rebalancing
+- **Live reload while developing:** Vite reloads JSON on save, so a changed number shows up in the running game within a second.
+- **Balance report** (`tools/balanceReport.ts`, dev-only): prints the numbers that matter for pacing, e.g. total RP and time for each tech tree at a given research rate, item values in GORE, production rates per building, and anything far outside its neighbors.
+- **Pacing tests:** because the sim is plain TypeScript, a test can run a scripted game for decades at full speed (no rendering) and check milestones, e.g. "with 2 labs, Nuclear Fission lands between 1930 and 1950". These start as warnings and tighten as the game settles.
+- **Presets later:** a different balance file (e.g. `balance.easy.json`) can be swapped in for difficulty levels without touching content.
+- **Saves record which balance version they were played with**, so play-test feedback can be traced to the numbers in use.
+
+---
+
+## 12. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
 - Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
@@ -635,7 +690,7 @@ Research math, discovery rolls (with a fixed seed), scientist arrival windows, q
 
 ---
 
-## 12. Open questions
+## 13. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
@@ -662,13 +717,13 @@ Research math, discovery rolls (with a fixed seed), scientist arrival windows, q
 - [ ] Is there a minimum research time per tech? (docs/tech-tree-physics.md)
 - [ ] What, if anything, does "the current era" mean for gameplay now that it doesn't gate research?
 - [ ] Construction scheduling details: how extra labor/equipment speeds a job, diminishing returns, crowding limits, partial material delivery (§9)
-- [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10)
+- [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10); all adjustable in balance.json (§11)
 - [x] Great scientists? → real historical figures; their breakthrough unlocks immediately on arrival
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 
 ---
 
-## 13. First milestones
+## 14. First milestones
 
 1. Scaffold Vite + TS + Phaser project
 2. Zod schemas + loader + registry with cross-reference validation
