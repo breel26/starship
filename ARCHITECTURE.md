@@ -63,7 +63,8 @@ Initial systems:
 | research | Turns lab and university output into research points and applies them to the player's chosen technologies; unlocks content (research is global, not per world). See §10 |
 | discovery | Rolls for chance discoveries from labs and universities, including discoveries outside a lab's own field. See §10 |
 | scientists | Brings great scientists into the game, applies their breakthroughs and pool bonuses. See §10 |
-| construction | Runs build and manufacturing jobs using the player's allocation of materials, labor and equipment. See §9 |
+| construction | Runs build and manufacturing activities: consumes materials, applies assigned labor and equipment, records progress. See §11 |
+| schedule | Critical path, leveling and previews for all activities; runs the active planner. See §11 |
 | prospecting | Reveals mineral deposits when a prospector visits an area |
 | logistics | Moves resources between storage and buildings within one world |
 | shipping | Moves cargo between worlds; cargo is in transit for a travel time and arrives in the destination world's stockpile |
@@ -103,7 +104,7 @@ Initial systems:
 ```
 /data
   eras.json
-  balance.json      every tuning knob and global multiplier (see §11)
+  balance.json      every tuning knob and global multiplier (see §12)
   economy.json      reference constants (GORE in joules, hp in watts)
   fields.json       research fields (physics, chemistry, medicine; more later)
   /steam            resources.json, buildings.json, recipes.json,
@@ -125,6 +126,7 @@ Initial systems:
     /systems        production.ts, scheduling.ts, research.ts,
                     prospecting.ts, logistics.ts, shipping.ts, movement.ts,
                     construction.ts, discovery.ts, scientists.ts
+    /schedule       cpm.ts, leveling.ts, preview.ts (see §11)
     /movement       swappable travel strategies (see §7):
                     types.ts      the Movement interface
                     distance.ts   straight-line travel time (now)
@@ -137,6 +139,7 @@ Initial systems:
                     fairStart.ts  checks/places guaranteed starting resources
                     explored.ts   coarse 1 km exploration grid
                     fog.ts        discovery and visibility
+  /planner          Planner interface + builtin planner (AI planners plug in here later); no Phaser
   /render
     /scenes         BootScene, MapScene, WorldOverviewScene, StarMapScene,
                     UIScene, MenuScene
@@ -145,9 +148,10 @@ Initial systems:
     origin.ts       re-centers render coordinates on the camera (no far-away jitter)
     /sprites        BuildingSprite, DepositSprite, WorkerSprite
   /ui/panels        BuildPanel, ResearchPanel, InventoryBar, WorkerPanel
+  /ui/schedule      GanttView, ActivitySheet (tabs), SchedulePreview, TimeCostCurve, ResourceProfile
   /save             save.ts, migrations.ts
 /tests              mirrors /src, plus /fixtures with tiny test data
-/tools              dev-only scripts: JSON Schema export for editor autocomplete, balanceReport.ts (§11)
+/tools              dev-only scripts: JSON Schema export for editor autocomplete, balanceReport.ts (§12)
 /docs               design references: transport.md (routes and vehicles by era), properties.md (object properties),
                     tech-tree-physics.md (example research tree)
 /assets             sprites, tilesets, audio
@@ -577,7 +581,7 @@ The second big mechanic is scheduling builds with limited resources. Everything 
 - **Every job** (a building, a vehicle, a batch of items) automatically gets a default allocation of **materials, labor and equipment** from its data.
 - **The player can adjust the allocation** to speed a job up or slow it down: more workers and equipment finish sooner, fewer stretch it out and free resources for other jobs. Materials are always needed in full.
 - **Every buildable item has its own build screen** showing its materials, labor, equipment, time, cost in GORE and the effect of the player's adjustments.
-- Detailed rules (how much extra labor speeds things up, diminishing returns, crowding limits, partial material delivery) are still to be designed; see §12.
+- Full design: §11 (P6-style scheduling, resource assignments and the planner).
 
 ---
 
@@ -627,7 +631,110 @@ Research math, discovery rolls (with a fixed seed), scientist arrival windows, q
 
 ---
 
-## 11. Balancing & tuning
+## 11. Scheduling (P6-style) & the planner
+
+Construction and manufacturing are scheduled like **Primavera P6**: activities with predecessors and successors, resource assignments, a critical path and a Schedule button that shows what a change does to the timeline and GORE. A built-in **planner** does the scheduling by default; the player can change anything at any time.
+
+### Projects and activities
+- Every construction or manufacturing job is an **activity**. Activities belong to **projects** (P6's WBS): "Build Iron Works" contains survey, foundation, furnace and so on. Eventually the Starship is one very large project.
+- **Relationships:** Finish-to-Start, Start-to-Start, Finish-to-Finish and Start-to-Finish, each with an optional lag in ticks. The engine supports all four from the start; the UI defaults to Finish-to-Start.
+- **Automatic links:** when an activity needs another activity's output (steel for a furnace) or a material delivery, the link is created automatically. Deliveries by route and vehicle are activities too.
+- **Constraints** (as in P6): start on or after, finish on or before, and priority.
+
+### Resources drive the duration (P6 "Fixed Units")
+Each buildable item's data defines its **work content**, not its duration:
+```json
+"work": {
+  "labor":     { "laborer": 120, "mason": 20 },
+  "equipment": { },
+  "materials": { "brick": 20000, "iron_plate": 5000 },
+  "crew":      { "laborer": { "default": 4, "max": 8 }, "mason": { "default": 1, "max": 2 } },
+  "overheadGorePerTick": 2
+}
+```
+- Labor and equipment are in worker-ticks and machine-ticks; materials (kg) are always needed in full.
+- **Duration = the longest of (work units ÷ assigned units) across its resources.** The slowest resource sets the pace. Past a crew's `max`, extra units add little (crowding; the curve is a knob in `balance.json`).
+- Example, Coal Furnace: default crew → 30 ticks; 8 laborers + 1 mason → 20 ticks (the mason becomes the bottleneck); 8 laborers + 2 masons → 15 ticks.
+
+### Resources, GORE and time
+Every resource has a GORE rate, so time and cost are always connected and shown together:
+| Resource | GORE cost |
+|---|---|
+| Labor | the worker's wage per tick × ticks assigned |
+| Equipment | fuel + wear per tick × ticks assigned |
+| Materials | their GORE value |
+| Overhead | the activity's site cost per tick while it's open |
+
+Finishing sooner cuts overhead; overloading a crew past its `max` wastes labor. The player can see that trade-off directly (below).
+
+### The schedule engine
+Pure TypeScript in `src/sim/schedule/` (no Phaser), heavily unit-tested:
+- `cpm.ts`: forward and backward passes, early/late dates, total float, critical path.
+- `leveling.ts`: delays non-critical work within its float when workers or equipment are over-allocated.
+- `preview.ts`: runs a change on a copy of the schedule and returns the before/after difference (finish dates, GORE, critical path, resource conflicts) without committing anything.
+- Progress, actual start/finish and slips from shortages or breakdowns feed back in every tick.
+
+### The planner (built-in now, pluggable later)
+- **The player sets goals; the planner plans.** The player chooses what to build ("Iron Works", "200 t of steel"); the planner creates and links activities, sizes crews, assigns equipment and levels resources across all projects, and replans as conditions change.
+- **Policy dial** per project or globally: **Fastest**, **Balanced** or **Cheapest** (how it trades time for GORE).
+- **Modes** per project:
+  - **Auto:** the planner applies its own changes.
+  - **Advise:** it proposes; the player reviews the before/after preview and accepts or rejects.
+  - **Manual:** it only runs the critical-path math.
+- **Player changes are pinned.** Any crew, link, constraint or priority the player sets is kept; the planner plans around it. Unpinning hands it back.
+- **It explains itself:** each decision carries a short note, e.g. "Delayed 6 ticks: both masons are on the Coal Furnace (critical)."
+- **Planning skill is progression:** the planner starts crude in 1900 (first come, first served, no leveling) and improves as the player researches techs like Gantt Charts (1910s), Critical Path Method (1957) and Computers, or hires a skilled project manager. Which capabilities each tech unlocks is data.
+
+### Plugging in a real AI agent later
+The planner sits behind one interface, so a real AI agent such as Claude can replace or advise it without changing the sim:
+```ts
+interface Planner {
+  id: string;                                        // "builtin", later e.g. "claude"
+  plan(input: PlannerInput): Promise<PlannerProposal>;
+}
+interface PlannerInput {                             // plain JSON, easy to send to an AI model
+  snapshot: ScheduleSnapshot;                        // projects, activities, resources, stockpiles, tick
+  goals: Goal[];
+  pins: Pin[];                                       // player decisions the planner must keep
+  policy: "fastest" | "balanced" | "cheapest";
+}
+interface PlannerProposal {
+  commands: Command[];                               // the same commands the player's UI sends
+  notes: { activityId?: string; text: string }[];    // explanations shown to the player
+}
+```
+- **Proposals are only commands.** The planner never edits game state directly; its commands go through the same validation as the player's, so any planner, built-in or AI, can't break rules or cheat.
+- **Asynchronous by design:** `plan()` returns a Promise, so a planner that calls a remote service fits without changes. If it is slow or fails, the game falls back to the built-in planner.
+- **Saves stay reproducible:** saves record the commands that were applied, not the planner's reasoning, so a game replays identically whichever planner produced them.
+- **Schemas double as tool definitions:** the Zod schemas for commands and snapshots can be exported as JSON Schema and given to an AI model as its tool definitions.
+- An AI planner would need a network connection, an API key and a new dependency (or plain `fetch`); per the ground rules, that's a decision for later, with Buck's approval.
+
+### Screens (phone-first, fuller layout on desktop)
+1. **Gantt view:** activity list with bars, critical path in red, float, relationship lines; the timeline scrolls sideways.
+2. **Activity details** in a bottom sheet with tabs:
+   - **General:** dates, float, % complete, constraints, pinned or planner-managed
+   - **Resources:** each resource's units per tick, total units, GORE/tick and GORE total; add or remove resources here
+   - **Predecessors** and **Successors**
+   - **Costs:** GORE split into labor, equipment, materials and overhead
+   - **Planner notes**
+3. **Schedule button:** recalculates and shows the before/after preview (finish dates, total GORE, critical path, conflicts) with Apply or Cancel.
+4. **Time–cost curve** on the Resources tab: crew size against finish date and GORE.
+5. **Resource usage profile:** demand vs available workers and equipment per tick.
+6. **Baselines:** save one and compare progress against it.
+
+### State (sketch)
+```ts
+interface ScheduleState {
+  projects: Project[];             // goal, mode (auto/advise/manual), policy
+  activities: Activity[];          // work, assignments, links, constraints, pins, status, progress, actual dates
+  baselines: Baseline[];
+  plannerId: string;               // "builtin" for now
+}
+```
+
+---
+
+## 12. Balancing & tuning
 
 The game will be rebalanced continuously: RP earned and RP costs, durations, GORE costs and values, resource availability and more. **Every number that affects gameplay is adjustable in JSON**; none is hard-coded in `src`.
 
@@ -681,7 +788,7 @@ Only things that aren't gameplay choices: unit definitions (1 GORE = 57,739,200 
 
 ---
 
-## 12. Saving
+## 13. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
 - Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
@@ -690,7 +797,7 @@ Only things that aren't gameplay choices: unit definitions (1 GORE = 57,739,200 
 
 ---
 
-## 13. Open questions
+## 14. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
@@ -716,14 +823,17 @@ Only things that aren't gameplay choices: unit definitions (1 GORE = 57,739,200 
 - [x] Do eras gate research? → no; a tech is discovered as soon as its prerequisites are done (§10)
 - [ ] Is there a minimum research time per tech? (docs/tech-tree-physics.md)
 - [ ] What, if anything, does "the current era" mean for gameplay now that it doesn't gate research?
-- [ ] Construction scheduling details: how extra labor/equipment speeds a job, diminishing returns, crowding limits, partial material delivery (§9)
-- [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10); all adjustable in balance.json (§11)
+- [x] Scheduling? → P6-style activities, relationships, resource assignments and Schedule preview; built-in planner runs it, player can override anytime (§11)
+- [x] AI agent? → built-in planner now; Planner interface lets a real AI agent (e.g. Claude) plug in later (§11)
+- [ ] Scheduling UI: confirm phone-first layout; relationship types in the UI beyond Finish-to-Start; mockups of Gantt and Resources screens
+- [ ] Crowding curve, overhead rates and partial material delivery (§11, tunable in balance.json)
+- [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10); all adjustable in balance.json (§12)
 - [x] Great scientists? → real historical figures; their breakthrough unlocks immediately on arrival
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 
 ---
 
-## 14. First milestones
+## 15. First milestones
 
 1. Scaffold Vite + TS + Phaser project
 2. Zod schemas + loader + registry with cross-reference validation
