@@ -147,7 +147,8 @@ Initial systems:
   /save             save.ts, migrations.ts
 /tests              mirrors /src, plus /fixtures with tiny test data
 /tools              dev-only scripts (e.g. export JSON Schema for editor autocomplete)
-/docs               design references: transport.md (routes and vehicles by era), properties.md (object properties)
+/docs               design references: transport.md (routes and vehicles by era), properties.md (object properties),
+                    tech-tree-physics.md (example research tree)
 /assets             sprites, tilesets, audio
 ```
 
@@ -224,10 +225,10 @@ See §10 for how research works.
   "id": "basic_metallurgy",
   "name": "Basic Metallurgy",
   "era": "steam",
+  "year": 1900,
   "field": "chemistry",
   "costRp": 500,
   "prerequisites": [],
-  "hidden": false,
   "unlocks": ["coal_furnace", "smelt_iron"]
 }
 ```
@@ -258,13 +259,12 @@ Fields are data, so new ones (e.g. engineering, computing, biology) can be added
 ### Great scientist
 ```json
 {
-  "id": "radiochemist_1900",
-  "name": "TBD",
+  "id": "marie_curie",
+  "name": "Marie Curie",
   "era": "steam",
-  "field": "chemistry",
-  "arrival": { "earliestYear": 1898, "latestYear": 1911 },
-  "breakthrough": { "tech": "radioactivity", "bonusRp": 2000 },
-  "poolBonus": { "fields": ["chemistry", "physics"], "percent": 15, "careerTicks": 3285 }
+  "arrival": { "earliestYear": 1900, "latestYear": 1910 },
+  "breakthrough": "radioactivity",
+  "careerBonus": { "fields": ["physics", "chemistry"], "percent": 15, "careerTicks": 3285 }
 }
 ```
 
@@ -396,9 +396,7 @@ interface GameState {
 }
 
 interface ResearchState {
-  revealedEras: string[];          // eras whose techs are visible in the tree
-  revealedTechs: string[];         // hidden techs uncovered by discoveries
-  completed: string[];
+  completed: string[];            // unlocked techs; "discovered" is derived from prerequisites
   progress: Record<string, number>;      // tech id → research points so far
   queues: Record<string, string[]>;      // field id → techs the player queued
   generalPool: number;                   // university points not yet assigned
@@ -600,19 +598,25 @@ The second big mechanic is scheduling builds with limited resources. Everything 
 
 ### Chance discoveries (including across fields)
 - Every lab and university has a small **discovery chance each tick**. When it hits, the discovery lands in a field picked by that building's `discoveryFields` weights, so **a physics lab can make a chemistry discovery** and **a medical lab can make a chemistry discovery**.
-- A discovery either **completes progress on an available tech** in that field (a lump of RP) or **reveals a hidden tech** that isn't on the visible tree yet.
+- A discovery adds a **lump of RP to a discovered tech** in that field (enough to unlock a cheap one outright).
 - Chances and weights are data per building type, so they can be tuned in play-testing.
 - All randomness uses the seeded generator in `src/core/rng.ts`, so a save replays identically and tests can check results exactly.
 
 ### Great scientists
-- Each era has a list of **great scientists** in `scientists.json`. Each one arrives at a random point inside a year window for their era (only once per game; arrival is more likely the more the player invests in research).
-- On arrival a scientist makes a **sudden breakthrough** (completes or reveals a specific tech, or grants a lump of RP), then works for a **career** during which they add a **percentage bonus** to the RP of one or more fields.
+- Great scientists are **real historical figures** (Curie, Einstein, Bohr, Meitner…), listed in each era's `scientists.json`.
+- Each arrives at a random point inside their historical year window, **once per game**, provided their breakthrough tech's prerequisites are done; if not, they arrive as soon as they are. Arrival is more likely the more the player invests in research.
+- **On arrival their breakthrough tech unlocks immediately**, no RP needed. They then work for a **career**, adding a **percentage bonus** to the RP of one or more fields.
 - The UI announces arrivals and breakthroughs, with an auto-pause option (§2.3).
 
-### Revealing the technology tree
-- **At the start only the current era's technologies are visible.** Later eras' techs are hidden until revealed.
-- Proposed: the **next era is revealed** when a share of the current era's techs are completed (e.g. 60%, tunable in data) or when certain **gateway techs** are researched. A discovery or scientist can also reveal individual techs early.
-- Some techs are **hidden** (`"hidden": true`) and can only be revealed by discoveries, scientists or completing their prerequisites. FTL drive variants will be hidden techs.
+### Tech states and the tree
+- **Eras don't gate research.** A tech's `era` and `year` are labels for flavor and pacing only.
+- Each tech is in one of three states:
+  - **Hidden:** some prerequisites aren't done; not shown.
+  - **Discovered:** every prerequisite is done. It appears on the tree with its **RP cost** and **estimated time to unlock**, and can be queued.
+  - **Unlocked:** its RP are fully paid (or a great scientist unlocked it); its content becomes available.
+- **Estimated time = RP remaining ÷ RP per tick going into it.** Adding RP (more labs, more funding, university points, scientist bonuses) shortens it, and the estimate updates live, shown in ticks, game days and real time at the current speed.
+- FTL drive variants will be techs deep in the tree, reachable once their prerequisites are done.
+- A worked example tree is in `docs/tech-tree-physics.md`.
 
 ### What research unlocks
 Technologies unlock content by id: recipes (new manufacturing processes), buildings, items, equipment, routes, vehicles, housing types, labs, and new research fields. Anything in the data can be gated behind a tech.
@@ -654,10 +658,12 @@ Research math, discovery rolls (with a fixed seed), scientist arrival windows, q
 - [x] Does manufacturing add value? → yes; value includes the energy spent making it (embodied energy)
 - [x] Does stored energy add value? → yes; fuel, food and batteries are worth their mass plus the energy they hold
 - [x] Housing density? → starts at 10 people per tile and rises with later housing types
-- [ ] What defines moving to the next era? (proposal in §10: share of current-era techs, or gateway techs)
+- [x] Do eras gate research? → no; a tech is discovered as soon as its prerequisites are done (§10)
+- [ ] Is there a minimum research time per tech? (docs/tech-tree-physics.md)
+- [ ] What, if anything, does "the current era" mean for gameplay now that it doesn't gate research?
 - [ ] Construction scheduling details: how extra labor/equipment speeds a job, diminishing returns, crowding limits, partial material delivery (§9)
 - [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10)
-- [ ] Great scientists: real historical figures or invented ones?
+- [x] Great scientists? → real historical figures; their breakthrough unlocks immediately on arrival
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 
 ---
