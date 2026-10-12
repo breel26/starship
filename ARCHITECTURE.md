@@ -60,7 +60,10 @@ Initial systems:
 | production | Runs recipes in buildings, consumes inputs, produces outputs |
 | scheduling | Decides which worker goes to which building slot and shift (never how they get there) |
 | movement | Works out each worker's commute, which reduces their output for the shift, using the active movement strategy (see §7) |
-| research | Progresses technologies, unlocks content (research is global, not per world) |
+| research | Turns lab and university output into research points and applies them to the player's chosen technologies; unlocks content (research is global, not per world). See §10 |
+| discovery | Rolls for chance discoveries from labs and universities, including discoveries outside a lab's own field. See §10 |
+| scientists | Brings great scientists into the game, applies their breakthroughs and pool bonuses. See §10 |
+| construction | Runs build and manufacturing jobs using the player's allocation of materials, labor and equipment. See §9 |
 | prospecting | Reveals mineral deposits when a prospector visits an area |
 | logistics | Moves resources between storage and buildings within one world |
 | shipping | Moves cargo between worlds; cargo is in transit for a travel time and arrives in the destination world's stockpile |
@@ -101,8 +104,9 @@ Initial systems:
 /data
   eras.json
   economy.json      GORE constants and the value window (starts at 100 ticks)
+  fields.json       research fields (physics, chemistry, medicine; more later)
   /steam            resources.json, buildings.json, recipes.json,
-                    technologies.json, workers.json, equipment.json,
+                    technologies.json, scientists.json, workers.json, equipment.json,
                     routes.json, vehicles.json
   /…                one folder per era, same files
   /world            terrains.json, planetTypes.json, galaxy.json, fairStart.json
@@ -118,7 +122,8 @@ Initial systems:
   /sim
     state.ts  tick.ts  commands.ts
     /systems        production.ts, scheduling.ts, research.ts,
-                    prospecting.ts, logistics.ts, shipping.ts, movement.ts
+                    prospecting.ts, logistics.ts, shipping.ts, movement.ts,
+                    construction.ts, discovery.ts, scientists.ts
     /movement       swappable travel strategies (see §7):
                     types.ts      the Movement interface
                     distance.ts   straight-line travel time (now)
@@ -213,14 +218,53 @@ Recipes are separate from buildings so one building can run many recipes and one
 ```
 
 ### Technology
+See §10 for how research works.
 ```json
 {
   "id": "basic_metallurgy",
   "name": "Basic Metallurgy",
   "era": "steam",
-  "cost": { "research": 50 },
+  "field": "chemistry",
+  "costRp": 500,
   "prerequisites": [],
+  "hidden": false,
   "unlocks": ["coal_furnace", "smelt_iron"]
+}
+```
+
+### Research field
+Fields are data, so new ones (e.g. engineering, computing, biology) can be added in later eras.
+```json
+{ "id": "physics", "name": "Physics", "era": "steam" }
+```
+
+### Lab (a building with a `research` block)
+```json
+{
+  "id": "physics_lab",
+  "name": "Physics Laboratory",
+  "era": "steam",
+  "research": {
+    "field": "physics",
+    "rpPerTick": 2,
+    "fundingGorePerTick": 5,
+    "discoveryChancePerTick": 0.002,
+    "discoveryFields": { "physics": 0.7, "chemistry": 0.2, "medicine": 0.1 }
+  },
+  "workerSlots": [{ "role": "scientist", "count": 4 }]
+}
+```
+
+### Great scientist
+```json
+{
+  "id": "radiochemist_1900",
+  "name": "TBD",
+  "era": "steam",
+  "field": "chemistry",
+  "arrival": { "earliestYear": 1898, "latestYear": 1911 },
+  "breakthrough": { "tech": "radioactivity", "bonusRp": 2000 },
+  "poolBonus": { "fields": ["chemistry", "physics"], "percent": 15, "careerTicks": 3285 }
 }
 ```
 
@@ -345,10 +389,21 @@ interface GameState {
   version: number;                 // for save migrations
   tick: number;
   galaxySeed: number;              // whole galaxy regenerates identically from this
-  research: { completed: string[]; active?: { id: string; progress: number } };
+  research: ResearchState;         // see below
   activeWorldId: string;           // which world the player is viewing
   worlds: Record<string, WorldState>; // only explored worlds are stored
   shipments: Shipment[];           // cargo in transit between worlds
+}
+
+interface ResearchState {
+  revealedEras: string[];          // eras whose techs are visible in the tree
+  revealedTechs: string[];         // hidden techs uncovered by discoveries
+  completed: string[];
+  progress: Record<string, number>;      // tech id → research points so far
+  queues: Record<string, string[]>;      // field id → techs the player queued
+  generalPool: number;                   // university points not yet assigned
+  scientists: ActiveScientist[];         // great scientists currently working
+  scientistsArrived: string[];           // ids, so each appears once per game
 }
 
 interface WorldState {
@@ -506,7 +561,68 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 
 ---
 
-## 9. Saving
+## 9. Gameplay overview
+
+### Goal
+Discover resources, turn them into buildings and manufactured items, and combine those into ever more complex assemblies until you can build a **starship** that leaves the planet and explores the galaxy. Early starships use known technology; later, research can discover **FTL drives**, with several possible versions (FTL mechanic deferred, see §8).
+
+### Core loop
+1. **Explore** to find resources (prospectors reveal deposits).
+2. **Build infrastructure** to extract them and move them to manufacturing plants (routes and vehicles, §8).
+3. **Manufacture** simple items, then combine them into more complex assemblies (machinery, computers, mills, power plants, components…).
+4. **Research** new manufacturing processes and items (§10).
+5. Repeat at larger scale, era by era, toward the starship.
+
+### Scheduling construction and manufacturing
+The second big mechanic is scheduling builds with limited resources. Everything has a **time** and a **cost**.
+- **Every job** (a building, a vehicle, a batch of items) automatically gets a default allocation of **materials, labor and equipment** from its data.
+- **The player can adjust the allocation** to speed a job up or slow it down: more workers and equipment finish sooner, fewer stretch it out and free resources for other jobs. Materials are always needed in full.
+- **Every buildable item has its own build screen** showing its materials, labor, equipment, time, cost in GORE and the effect of the player's adjustments.
+- Detailed rules (how much extra labor speeds things up, diminishing returns, crowding limits, partial material delivery) are still to be designed; see §12.
+
+---
+
+## 10. Research & discovery
+
+### Research points and fields
+- Research produces **research points (RP)** in **fields**: **physics, chemistry and medicine** to start. Fields are data (`fields.json`), so later eras can add more (e.g. engineering, computing, biology).
+- Every technology belongs to one field and has a cost in RP of that field.
+- The player sets a **research queue per field**. Each tick, a field's RP flow into the first tech in its queue; leftovers carry over to the next.
+
+### Labs
+- **Physics, chemistry and medical labs** are buildings. Each produces RP in its own field.
+- **Labs cost GORE to run:** each lab has a funding level in GORE per tick. Output scales with funding and with its staffed scientists, so research competes with construction and manufacturing for the same GORE.
+- Proposed output rule: `RP per tick = rpPerTick × (staffed scientists ÷ slots) × (funding ÷ fundingGorePerTick)`, with funding capped at 100% for now. Player-set underfunding slows a lab rather than stopping it.
+
+### Universities
+- Universities add RP to a **general pool** that can be applied to any field's queue (the player assigns it, or it splits automatically across active queues).
+- They also have a chance of making discoveries (below) and, later, train scientists (people `education`, properties P16).
+
+### Chance discoveries (including across fields)
+- Every lab and university has a small **discovery chance each tick**. When it hits, the discovery lands in a field picked by that building's `discoveryFields` weights, so **a physics lab can make a chemistry discovery** and **a medical lab can make a chemistry discovery**.
+- A discovery either **completes progress on an available tech** in that field (a lump of RP) or **reveals a hidden tech** that isn't on the visible tree yet.
+- Chances and weights are data per building type, so they can be tuned in play-testing.
+- All randomness uses the seeded generator in `src/core/rng.ts`, so a save replays identically and tests can check results exactly.
+
+### Great scientists
+- Each era has a list of **great scientists** in `scientists.json`. Each one arrives at a random point inside a year window for their era (only once per game; arrival is more likely the more the player invests in research).
+- On arrival a scientist makes a **sudden breakthrough** (completes or reveals a specific tech, or grants a lump of RP), then works for a **career** during which they add a **percentage bonus** to the RP of one or more fields.
+- The UI announces arrivals and breakthroughs, with an auto-pause option (§2.3).
+
+### Revealing the technology tree
+- **At the start only the current era's technologies are visible.** Later eras' techs are hidden until revealed.
+- Proposed: the **next era is revealed** when a share of the current era's techs are completed (e.g. 60%, tunable in data) or when certain **gateway techs** are researched. A discovery or scientist can also reveal individual techs early.
+- Some techs are **hidden** (`"hidden": true`) and can only be revealed by discoveries, scientists or completing their prerequisites. FTL drive variants will be hidden techs.
+
+### What research unlocks
+Technologies unlock content by id: recipes (new manufacturing processes), buildings, items, equipment, routes, vehicles, housing types, labs, and new research fields. Anything in the data can be gated behind a tech.
+
+### Testing
+Research math, discovery rolls (with a fixed seed), scientist arrival windows, queue overflow and era reveal rules all get unit tests in `tests/sim/systems/`.
+
+---
+
+## 11. Saving
 
 - Save = `JSON.stringify(GameState)` + data version
 - Maps aren't saved tile by tile: each world stores its seed plus `tileChanges`, and the map is regenerated on load
@@ -515,7 +631,7 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 
 ---
 
-## 10. Open questions
+## 12. Open questions
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
@@ -538,12 +654,15 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 - [x] Does manufacturing add value? → yes; value includes the energy spent making it (embodied energy)
 - [x] Does stored energy add value? → yes; fuel, food and batteries are worth their mass plus the energy they hold
 - [x] Housing density? → starts at 10 people per tile and rises with later housing types
-- [ ] What defines moving to the next era?
+- [ ] What defines moving to the next era? (proposal in §10: share of current-era techs, or gateway techs)
+- [ ] Construction scheduling details: how extra labor/equipment speeds a job, diminishing returns, crowding limits, partial material delivery (§9)
+- [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10)
+- [ ] Great scientists: real historical figures or invented ones?
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 
 ---
 
-## 11. First milestones
+## 13. First milestones
 
 1. Scaffold Vite + TS + Phaser project
 2. Zod schemas + loader + registry with cross-reference validation
