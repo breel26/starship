@@ -164,7 +164,7 @@ Objects carry realistic physical, economic and human properties from day one, ev
 ### Economy: GORE
 - **GORE** (Geosynchronous ORbital Energy) is the currency and the energy unit: **1 GORE = 13,800 kcal = 57.7 MJ**, the energy to lift 1 kg from the surface to geosynchronous orbit.
 - **Power is in GORE per tick** (1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW). Energy, fuel, wages and food are all in GORE too, so the game never converts units.
-- **Value = mass + manufacturing energy + work premium.** Mass is 1 GORE per kg. Manufacturing energy is the energy spent making it, summed through the recipe chain (raw materials have none). The work premium is power in GORE/tick × the value window, for things that can do work. The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
+- **Value = mass + manufacturing energy + stored energy + work premium.** Mass is 1 GORE per kg. Manufacturing energy is the energy spent making it, summed through the recipe chain (raw materials have none). Stored energy is what fuel, food and (later) batteries hold: 1 kg of coal is worth about 1.42 GORE before mining costs, 1 kg of diesel about 1.78 plus refining. The work premium is power in GORE/tick × the value window, for things that can do work. The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
 - **Manufacturing energy is calculated, not typed in:** each recipe run uses (building power + workers' work output) × duration; outputs are worth their inputs' value plus that energy. The registry computes this at load by walking the recipe graph, and an item can override it.
 - Things that run for less than a tick (rockets, engine burns) get a premium equal to the energy they can deliver within the window.
 - `valueGore` is what something is **worth**; `cost` is the **materials needed to build it**. They're separate fields.
@@ -536,7 +536,7 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 - [x] Currency? → GORE; value = mass + 100 ticks of power output (§4 Economy)
 - [x] Buildings per tile? → one, except housing (10 people per tile)
 - [x] Does manufacturing add value? → yes; value includes the energy spent making it (embodied energy)
-- [ ] Should a fuel's stored energy add to its value?
+- [x] Does stored energy add value? → yes; fuel, food and batteries are worth their mass plus the energy they hold
 - [x] Housing density? → starts at 10 people per tile and rises with later housing types
 - [ ] What defines moving to the next era?
 - [ ] FTL Starship mechanic → deferred to a future update (§8)

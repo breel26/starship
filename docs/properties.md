@@ -29,9 +29,10 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 
 - **1 GORE = 13,800 kcal = 57.7 MJ**, the energy needed to lift 1 kg from the surface to geosynchronous orbit.
 - **Power is measured in GORE per tick** (one 8-hour shift). **1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW**; 1 hp ≈ 0.372 GORE/tick.
-- **Value = mass + manufacturing energy + work premium:**
+- **Value = mass + manufacturing energy + stored energy + work premium:**
   - **Mass:** 1 GORE per kg.
   - **Manufacturing energy** ("embodied energy"): the energy spent making it, added up through every step of its production chain. Raw materials found in nature have none.
+  - **Stored energy:** energy it holds that can be released later: fuel (coal ≈ 0.42, diesel ≈ 0.78 GORE/kg), food (grain ≈ 0.25 GORE/kg), and later batteries and nuclear fuel. Comes from `energyGorePerKg` (M8) × mass.
   - **Work premium:** if it can do work, its power in GORE/tick × 100. The 100-tick **value window** is one tunable number in the data, to adjust after play-testing.
 - **Things that run for minutes, not ticks** (rockets, engine burns): the premium is the energy they can actually deliver within the value window.
 - **Unpowered things** have no work premium: raw iron ore is worth just its mass (1 GORE/kg); a wagon is worth its mass plus the energy used to build it.
@@ -59,7 +60,7 @@ Per-vehicle values are in `transport.md`.
 | S3 | `era` | era id | required (except materials found in nature) | Now |
 | S4 | `description` | text | "" | Now |
 | S5 | `icon` | sprite id | same as `id` | Now |
-| S6 | `valueGore` | GORE | derived: `massKg` + manufacturing energy + `powerGorePerTick` × value window | Now |
+| S6 | `valueGore` | GORE | derived: `massKg` + manufacturing energy + stored energy + `powerGorePerTick` × value window | Now |
 | S7 | `tags` | list of text | [] | Now |
 | S8 | `massKg` | kg | derived from `composition` | Soon |
 | S9 | `sizeM` | [length, width, height] m | none | Soon |
@@ -78,7 +79,7 @@ Per-vehicle values are in `transport.md`.
 | M5 | `compressiveStrengthMPa` | MPa | 0 | Later | foundations, tall buildings |
 | M6 | `meltingPointC` | °C | none (doesn't melt) | Soon | smelting temperatures, furnace tiers |
 | M7 | `ignitionPointC` | °C | none (non-flammable) | Later | fire spread, storage risk |
-| M8 | `energyGorePerKg` | GORE/kg | 0 | Now | fuel value (coal ≈ 0.42, diesel ≈ 0.78) |
+| M8 | `energyGorePerKg` | GORE/kg | 0 | Now | stored energy (coal ≈ 0.42, diesel ≈ 0.78, grain ≈ 0.25); adds to value and is released when burned or eaten |
 | M9 | `thermalConductivityWmK` | W/m·K | 1 | Future | insulation, heat |
 | M10 | `electricalConductivitySm` | S/m | 0 | Future | wiring, power grid |
 | M11 | `corrosionResistance` | 0–1 | 0.5 | Later | durability, rust |
@@ -256,10 +257,7 @@ Derived at load: `massKg` 390, `valueGore` 390 + the manufacturing energy of its
 ## Decisions
 
 1. **Buildings:** one building per 100 m tile, except housing. Housing starts at 10 people per tile; later housing types raise the density.
-2. **Currency:** GORE (1 GORE = 13,800 kcal = 57.7 MJ). Value = mass + manufacturing energy + 100 ticks of power output (if it does work).
+2. **Currency:** GORE (1 GORE = 13,800 kcal = 57.7 MJ). Value = mass + manufacturing energy + stored energy (fuel, food) + 100 ticks of power output (if it does work).
 3. **Power:** everything is in GORE per tick.
 4. **People:** modeled individually for now, with the option to group large populations later.
 
-## Open questions
-
-1. **Fuel:** should a fuel's stored energy (coal 0.42, diesel 0.78 GORE/kg) add to its value on top of its mass and manufacturing energy?
