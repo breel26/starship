@@ -29,13 +29,18 @@ The goal is a deep simulation: objects carry realistic properties from day one, 
 
 - **1 GORE = 13,800 kcal = 57.7 MJ**, the energy needed to lift 1 kg from the surface to geosynchronous orbit.
 - **Power is measured in GORE per tick** (one 8-hour shift). **1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW**; 1 hp ≈ 0.372 GORE/tick.
-- **Value = mass in kg + power in GORE/tick × 100.** Anything that can do work is worth its weight plus 100 ticks of its output. The 100-tick **value window** is one tunable number in the data, to adjust after play-testing.
+- **Value = mass + manufacturing energy + work premium:**
+  - **Mass:** 1 GORE per kg.
+  - **Manufacturing energy** ("embodied energy"): the energy spent making it, added up through every step of its production chain. Raw materials found in nature have none.
+  - **Work premium:** if it can do work, its power in GORE/tick × 100. The 100-tick **value window** is one tunable number in the data, to adjust after play-testing.
 - **Things that run for minutes, not ticks** (rockets, engine burns): the premium is the energy they can actually deliver within the value window.
-- **Unpowered things** (a wagon, a barge, a bag of iron ore) are worth their mass: 1 GORE per kg.
+- **Unpowered things** have no work premium: raw iron ore is worth just its mass (1 GORE/kg); a wagon is worth its mass plus the energy used to build it.
+- **How manufacturing energy is worked out:** each recipe run uses energy = (building power + workers' work output) × duration. The outputs are worth the value of their inputs plus that energy, split across the outputs. The game calculates this at load by walking the recipe chain, so authors don't type it in; it can be overridden per item.
+- **Real-world reference** (typical energy to produce 1 kg, for authoring recipes): concrete ≈ 0.02, brick ≈ 0.05, sawn timber ≈ 0.15, glass ≈ 0.26, steel ≈ 0.4, copper ≈ 1, plastic ≈ 1.4, aluminum ≈ 3 GORE/kg. So 1 kg of aluminum ends up worth about 4 GORE, versus about 1.4 for steel.
 
-| Example | Mass | Power | Value |
+| Example | Mass | Power | Value (mass + work; manufacturing energy comes from recipes) |
 |---|---|---|---|
-| Iron ore, 1 kg | 1 kg | — | 1 GORE |
+| Iron ore, 1 kg | 1 kg | — | 1 GORE (raw, no manufacturing energy) |
 | Person | 70 kg | 0.04 GORE/tick (0.1 hp) | 74 GORE |
 | Horse | 500 kg | 0.37 GORE/tick (1 hp) | 537 GORE |
 | Model T | 540 kg | 7.4 GORE/tick (20 hp) | 1,284 GORE |
@@ -54,7 +59,7 @@ Per-vehicle values are in `transport.md`.
 | S3 | `era` | era id | required (except materials found in nature) | Now |
 | S4 | `description` | text | "" | Now |
 | S5 | `icon` | sprite id | same as `id` | Now |
-| S6 | `valueGore` | GORE | derived: `massKg` + `powerGorePerTick` × value window | Now |
+| S6 | `valueGore` | GORE | derived: `massKg` + manufacturing energy + `powerGorePerTick` × value window | Now |
 | S7 | `tags` | list of text | [] | Now |
 | S8 | `massKg` | kg | derived from `composition` | Soon |
 | S9 | `sizeM` | [length, width, height] m | none | Soon |
@@ -82,6 +87,7 @@ Per-vehicle values are in `transport.md`.
 | M14 | `perishShifts` | shifts | none (doesn't spoil) | Soon | food spoilage |
 | M15 | `rarity` | 0–1 | 0.5 | Now | deposit generation |
 | M16 | `recyclableFraction` | 0–1 | 0 | Later | scrap and recycling |
+| M17 | `embodiedGorePerKg` | GORE/kg | derived from recipes (0 for raw materials) | Now | manufacturing energy; part of value |
 
 ---
 
@@ -114,7 +120,7 @@ Per-vehicle values are in `transport.md`.
 | B4 | `requiredTerrain` | list of terrain ids | any buildable | Now | where it can go |
 | B5 | `workerSlots` | [{ role, count }] | [] | Now | jobs |
 | B6 | `maxShiftsPerDay` | 1–3 | 3 | Now | night shifts |
-| B7 | `housingCapacity` | people per tile | 0 (10 for housing) | Now | homes; **a housing tile holds 10 people** |
+| B7 | `housingCapacity` | people per tile | 0 (10 for early housing) | Now | homes; **starts at 10 per tile and rises with later housing types** (apartments, arcologies) |
 | B8 | `storageM3` | m³ | 0 | Now | stockpile space |
 | B9 | `storageForms` | list of forms (see M1) | [packaged] | Soon | silos vs tanks vs warehouses |
 | B10 | `foundationLoadKPa` | kPa | 100 | Later | needs terrain with enough bearing capacity (T6) |
@@ -243,19 +249,17 @@ Worker **types** are templates in `workers.json`; each **person** in the game is
   "offRoad": true
 }
 ```
-Derived at load: `massKg` 390, `valueGore` 390 (unpowered, so mass only), `fireResistance` low (mostly wood).
+Derived at load: `massKg` 390, `valueGore` 390 + the manufacturing energy of its wood and iron (unpowered, so no work premium), `fireResistance` low (mostly wood).
 
 ---
 
 ## Decisions
 
-1. **Buildings:** one building per 100 m tile, except housing, where one tile houses 10 people.
-2. **Currency:** GORE (1 GORE = 13,800 kcal = 57.7 MJ). Value = mass + 100 ticks of power output.
+1. **Buildings:** one building per 100 m tile, except housing. Housing starts at 10 people per tile; later housing types raise the density.
+2. **Currency:** GORE (1 GORE = 13,800 kcal = 57.7 MJ). Value = mass + manufacturing energy + 100 ticks of power output (if it does work).
 3. **Power:** everything is in GORE per tick.
 4. **People:** modeled individually for now, with the option to group large populations later.
 
 ## Open questions
 
-1. **Processing adds no value yet.** Under the mass rule, 1 kg of iron ore and 1 kg of steel are both worth 1 GORE. Should the work spent making something (its "embodied energy") add to its value?
-2. **Fuel:** should a fuel's stored energy (coal 0.42, diesel 0.78 GORE/kg) add to its value on top of its mass?
-3. **Housing density:** is 10 people per tile fixed, or can later eras raise it (apartments, arcologies)?
+1. **Fuel:** should a fuel's stored energy (coal 0.42, diesel 0.78 GORE/kg) add to its value on top of its mass and manufacturing energy?

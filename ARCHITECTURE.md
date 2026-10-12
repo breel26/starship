@@ -164,13 +164,14 @@ Objects carry realistic physical, economic and human properties from day one, ev
 ### Economy: GORE
 - **GORE** (Geosynchronous ORbital Energy) is the currency and the energy unit: **1 GORE = 13,800 kcal = 57.7 MJ**, the energy to lift 1 kg from the surface to geosynchronous orbit.
 - **Power is in GORE per tick** (1 GORE/tick ≈ 2.69 hp ≈ 2.0 kW). Energy, fuel, wages and food are all in GORE too, so the game never converts units.
-- **Value = mass in kg + power in GORE/tick × value window.** The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
+- **Value = mass + manufacturing energy + work premium.** Mass is 1 GORE per kg. Manufacturing energy is the energy spent making it, summed through the recipe chain (raw materials have none). The work premium is power in GORE/tick × the value window, for things that can do work. The window starts at **100 ticks** and lives in `/data/economy.json` so it can be tuned after play-testing without touching code.
+- **Manufacturing energy is calculated, not typed in:** each recipe run uses (building power + workers' work output) × duration; outputs are worth their inputs' value plus that energy. The registry computes this at load by walking the recipe graph, and an item can override it.
 - Things that run for less than a tick (rockets, engine burns) get a premium equal to the energy they can deliver within the window.
 - `valueGore` is what something is **worth**; `cost` is the **materials needed to build it**. They're separate fields.
 - Examples: person 74, horse 537, Model T 1,284, Cat 335 excavator 45,054 GORE. Every vehicle's value is in `docs/transport.md`.
 
 ### Buildings and tiles
-One building per 100 m tile, except housing: a housing tile holds 10 people.
+One building per 100 m tile, except housing. Housing density is set per housing type: early housing holds 10 people per tile, and later types (apartments, arcologies) hold more.
 
 The examples below show core fields only; see `docs/properties.md` for the rest.
 
@@ -534,9 +535,9 @@ The Starship can be faster than light. Its mechanic is **deferred to a future up
 - [x] Era list? → 9 eras: Steam, Diesel, Jet, Information, Modern, Near Future, Orbital, Interplanetary, Interstellar; expandable (§2.1, §4 Era)
 - [x] Currency? → GORE; value = mass + 100 ticks of power output (§4 Economy)
 - [x] Buildings per tile? → one, except housing (10 people per tile)
-- [ ] Should processing ("embodied energy") add value? Iron ore and steel are both 1 GORE/kg under the mass rule
+- [x] Does manufacturing add value? → yes; value includes the energy spent making it (embodied energy)
 - [ ] Should a fuel's stored energy add to its value?
-- [ ] Is housing fixed at 10 people per tile, or can later eras raise it?
+- [x] Housing density? → starts at 10 people per tile and rises with later housing types
 - [ ] What defines moving to the next era?
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
 

@@ -226,6 +226,7 @@ How values are worked out (see ARCHITECTURE.md §5a):
 - **Jet aircraft:** power is estimated as cruise thrust × cruise speed.
 - **Rail:** locomotives are valued without their cars. Rolling stock is separate: freight car ~15,000 GORE, passenger coach ~40,000 GORE (mass only).
 - Masses and powers are approximate (±30%) real-world figures; 🔮 items are best estimates.
+- **These values are mass + work premium only.** Manufacturing energy is added automatically once recipes exist (roughly +40% of mass for steel-built vehicles, more for aluminum aircraft).
 
 | ID | Vehicle | Mass (kg) | Power (GORE/tick) | Value (GORE) | Notes |
 |---|---|---|---|---|---|
