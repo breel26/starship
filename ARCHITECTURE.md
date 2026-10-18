@@ -494,7 +494,12 @@ Home planet starts with 8:
 Later planets add about 6–8 alien terrains (e.g. ice, volcanic rock, lava, crater dust, crystal fields, toxic marsh), for roughly 14–16 total. Some reuse home-planet tile shapes with a new color palette to keep the art workload down.
 
 ### Art
-- 64×64 pixel tiles, illustrated fantasy-map style (snowy peaks, dense pines, layered red canyons)
+- **Style: top-down pixel art, mixed resolution** (chosen after comparing 16-bit, detailed 32 px, isometric, 64 px and mixed mockups):
+  - **Terrain** is drawn as **32×32 px tiles shown at 2×**, so every map tile is 64 px on screen (1 tile = 100 m).
+  - **Buildings, vehicles and other things the player makes** are drawn at **native 64×64 px**, so they stand out from the land and can show their state (smoke, scaffolding, staked foundations, working machines).
+  - Trees, hills and mountains belong to the terrain layer (32 px) and overlap the tile above for a 3/4 look.
+  - Rendered with nearest-neighbor scaling (no smoothing). In Phaser: `pixelArt: true`.
+- Illustrated fantasy-map feel: snowy peaks, dense pines, layered red canyons, shorelines with foam
 - Each terrain needs a base tile plus edge tiles for blending into neighbors; this is the main cost of adding a terrain
 - Resources shown icon-sized with a soft glow
 - Undiscovered deposits render as glints until a prospector visits
