@@ -22,7 +22,7 @@ Last updated: 18 Oct 2026.
 
 | ID | Question | Suggestion / notes | Source |
 |---|---|---|---|
-| Q8 | **What does "the current era" mean** now that eras don't gate research? A label, a milestone with rewards, or something that changes housing, buildings or events? | e.g. the era advances when you complete a set of key techs, with a celebration screen and new events. | ARCHITECTURE §13 |
+| Q8 | **What does "the current era" mean** now that eras don't gate research? A label, a milestone with rewards, or something that changes housing, buildings or events? | e.g. the era advances when you complete a set of key techs, with a celebration screen and new events. | ARCHITECTURE §14 |
 | Q9 | **Win and progress conditions:** is launching the first (non-FTL) starship a win, a milestone, or the start of the space game? | | — |
 
 ## Scheduling & construction
@@ -48,7 +48,7 @@ Last updated: 18 Oct 2026.
 
 | ID | Question | Suggestion / notes | Source |
 |---|---|---|---|
-| Q19 | **Offline progress:** does the game keep running while it's closed? | Options: no; yes, capped (e.g. 8 hours); yes, fully simulated at high speed on return. | ARCHITECTURE §13 |
+| Q19 | **Offline progress:** does the game keep running while it's closed? | Options: no; yes, capped (e.g. 8 hours); yes, fully simulated at high speed on return. | ARCHITECTURE §14 |
 
 ## Economy
 

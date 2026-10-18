@@ -153,7 +153,7 @@ Initial systems:
 /tests              mirrors /src, plus /fixtures with tiny test data
 /tools              dev-only scripts: JSON Schema export for editor autocomplete, balanceReport.ts (§12)
 /docs               design references: transport.md (routes and vehicles by era), properties.md (object properties),
-                    tech-tree-physics.md (example research tree)
+                    tech-tree-physics.md (example research tree), open-questions.md (unresolved design questions)
 /assets             sprites, tilesets, audio
 ```
 
@@ -803,6 +803,8 @@ Only things that aren't gameplay choices: unit definitions (1 GORE = 57,739,200 
 ---
 
 ## 14. Open questions
+
+The full, categorized list of unresolved questions is in `docs/open-questions.md`. The checklist below records decisions as they're made.
 
 - [x] Fresh repo, or a rebuild that replaces steam-to-stars? → fresh repo: breel26/starship
 - [x] Phaser 3 or Phaser 4? → Phaser 4, pinned 4.2.1
