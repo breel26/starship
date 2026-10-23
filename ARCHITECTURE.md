@@ -41,9 +41,10 @@ Expansion and mod packs use the same folder format and go through the same valid
 ### 2.2 Registry
 At boot:
 1. Load all JSON files (built-in, then any packs) and merge them
-2. Validate each against a Zod 4 Mini schema
-3. Check cross-references (e.g. a recipe input `iron_ore` must exist in `resources.json`; a building's `requiresTech` must exist in `technologies.json`)
-4. Index everything by `id` into a read-only registry
+2. Resolve `extends` (data inheritance, see §2.5)
+3. Validate each against a Zod 4 Mini schema, including every effect and condition (§2.5)
+4. Check cross-references (e.g. a recipe input `iron_ore` must exist in `resources.json`; a building's `requiresTech` must exist in `technologies.json`)
+5. Index everything by `id` into a read-only registry, plus per-component indexes (e.g. all building types with a `research` block)
 
 Bad data fails loudly at startup, never mid-game.
 
@@ -97,6 +98,65 @@ Initial systems:
 - An **event bus** pushes sim events to the UI (`research:complete`, `deposit:discovered`, `building:idle`, …)
 - Phaser scale mode handles phone and desktop
 
+### 2.5 Extensibility patterns (data as code)
+New kinds of things and new behavior should come from data wherever possible. **Code defines what *can* happen; data defines what *does* happen.** These patterns work together to make that possible:
+
+| Pattern | Role in Starship | Status |
+|---|---|---|
+| Registry + factory | Maps string ids in JSON to definitions, component blocks, effect handlers and condition checks | Core (§2.2) |
+| Type Object | Instances store a `type` id and share one read-only definition; no TS subclass per building, worker or vehicle | Core |
+| Component blocks (ECS-lite) | Definitions are composed of optional blocks; systems act on whatever has their block | Core |
+| Prototype (`extends`) | Data inheritance: variants and templates without copy-paste | Core |
+| Command | Player and planner actions as data (§2.3, §11) | Core |
+| Effects | Outcomes as data lists run by a handler registry | Core |
+| Event bus + triggers | Data subscribes effects to sim events | Core |
+| Conditions | Small data-only logic (all / any / not + checks) | Core |
+| State machines / behavior trees | Lifecycles and AI defined in data, run by a generic interpreter | Later, when a feature needs it |
+| Embedded scripting | Real code inside data | Not planned (see "Where the line is") |
+
+**Component blocks (ECS-lite).** Instead of a class hierarchy, a definition lists the blocks it has, and each sim system handles one block. A lab is just a building with a `research` block (§4); a building with `research` *and* `housing` blocks would be a campus with dorms, with no new code. Adding a new *combination* is data only; adding a new *kind* of block is a schema plus a system (code). State stays plain per-world arrays (§5); the registry precomputes which definitions have which block, so systems don't scan everything. No ECS library is used (ground rule: minimal dependencies).
+
+**Prototype (`extends`).** Any definition may name one parent of the same content type:
+```json
+{ "id": "base_steam_vehicle", "abstract": true, "network": "road", "upkeep": { "coal": 1 } }
+{ "id": "steam_tractor", "extends": "base_steam_vehicle", "speedKmh": 6, "capacity": { "cargoTonnes": 4 } }
+```
+- Resolved by the loader before validation: objects merge deeply, arrays and plain values are replaced by the child.
+- `abstract` entries are templates only; they're never placed in the game or shown in menus.
+- Parents may come from an earlier pack, so mods can make variants of built-in content. A pack that reuses an existing `id` replaces that entry.
+- Missing parents and cycles fail loudly at load.
+
+**Effects.** Outcomes are lists of small typed steps, run by a handler registry in `src/sim/effects/`:
+```json
+"onUnlock": [
+  { "type": "unlock", "id": "steam_pump" },
+  { "type": "addResource", "id": "coal", "amount": 200 },
+  { "type": "notify", "event": "tech:unlocked", "autoPause": true }
+]
+```
+- Each effect type has a Zod schema and one handler; the loader builds a discriminated union from the registry, so an unknown `type` or a bad field fails at load.
+- Used by tech unlocks, discoveries, scientist arrivals, triggers and (later) random events.
+- Handlers only change state through the sim's normal rules and use `src/core/rng.ts`, so saves replay identically. Amounts are per-item values and still pass through `balance.json` multipliers (§12).
+
+**Event bus + triggers.** The event bus (§2.4) also runs inside the sim: systems emit events (`tech:unlocked`, `building:completed`, `stockpile:empty`, …) and data can subscribe effects to them:
+```json
+{ "id": "first_steel_bonus", "on": "building:completed", "if": { "isType": "steel_mill" }, "once": true,
+  "do": [{ "type": "addRp", "field": "chemistry", "amount": 100 }] }
+```
+Events raised during a tick are queued and handled in order at the end of that tick, so results never depend on system order and stay deterministic. Old content can be extended by new triggers without editing it.
+
+**Conditions.** One small, data-only language for `if`, unlock requirements and (later) state-machine transitions: `all`, `any`, `not`, plus registered checks such as `techDone`, `stockAtLeast`, `hasBuilding`, `yearAtLeast`, `isType`. Checks are a registry like effects. No variables, loops or arithmetic.
+
+**Where the line is**
+- **Data:** content and composition: items, buildings, recipes, techs, events, triggers, balance numbers, and which effects and conditions apply.
+- **Code:** new *kinds* of behavior: a new component block, effect type, condition check or system. When data needs something the engine can't express, add one new primitive (with tests); every data file can then use it.
+- **Warning sign:** if conditions start needing variables or loops, the data is becoming a bad programming language. Move that logic into a primitive instead.
+- **Embedded scripting** (e.g. Lua or sandboxed JS) would need a new dependency and makes mods harder to keep safe and deterministic. Not planned; revisit only with Buck's approval if primitives can't keep up.
+
+**Hot reload.** Vite reloads JSON on save while developing (§12), and the registry is rebuilt through the same load and validation path. Packs and mods use exactly the same path at startup.
+
+**Testing.** Every effect handler and condition check gets unit tests with fixture data. A loader test checks that `extends` merging, cycle detection and unknown effect types behave as described.
+
 ---
 
 ## 3. Repo layout
@@ -109,7 +169,7 @@ Initial systems:
   fields.json       research fields (physics, chemistry, medicine; more later)
   /steam            resources.json, buildings.json, recipes.json,
                     technologies.json, scientists.json, workers.json, equipment.json,
-                    routes.json, vehicles.json
+                    routes.json, vehicles.json, triggers.json (§2.5)
   /…                one folder per era, same files
   /world            terrains.json, planetTypes.json, galaxy.json, fairStart.json
 /src
@@ -119,10 +179,14 @@ Initial systems:
   /data
     /schemas        one Zod schema file per content type
     loader.ts       loads + merges era folders and packs
+    extends.ts      resolves `extends` (data inheritance, §2.5)
     crossref.ts     checks every id reference resolves
     registry.ts     read-only lookup by id
   /sim
     state.ts  tick.ts  commands.ts
+    triggers.ts     runs data-defined triggers on sim events (§2.5)
+    /effects        one handler + schema per effect type, plus the effect registry
+    /conditions     one check + schema per condition type, plus the condition registry
     /systems        production.ts, scheduling.ts, research.ts,
                     prospecting.ts, logistics.ts, shipping.ts, movement.ts,
                     construction.ts, discovery.ts, scientists.ts
@@ -237,6 +301,7 @@ See §10 for how research works.
   "unlocks": ["coal_furnace", "smelt_iron"]
 }
 ```
+`unlocks` makes content available. An optional `onUnlock` list runs extra effects (§2.5).
 
 ### Research field
 Fields are data, so new ones (e.g. engineering, computing, biology) can be added in later eras.
@@ -837,13 +902,14 @@ The full, categorized list of unresolved questions is in `docs/open-questions.md
 - [ ] Research tuning: lab output rule, discovery chances, scientist bonuses (§10); all adjustable in balance.json (§12)
 - [x] Great scientists? → real historical figures; their breakthrough unlocks immediately on arrival
 - [ ] FTL Starship mechanic → deferred to a future update (§8)
+- [x] How do data files add behavior at run time? → registry + Type Object + component blocks (ECS-lite, no library) + `extends` + commands + effects + triggers on the event bus + a small condition language; state machines later; no embedded scripting for now (§2.5)
 
 ---
 
 ## 15. First milestones
 
 1. Scaffold Vite + TS + Phaser project
-2. Zod schemas + loader + registry with cross-reference validation
+2. Zod schemas + loader (with `extends`) + registry with cross-reference validation; effect and condition registries with the first few types
 3. Minimal `GameState`, tick loop, command queue
 4. Production system with one building and one recipe, covered by tests
 5. Seeded wrapping noise + chunk generation + fair-start check, covered by tests

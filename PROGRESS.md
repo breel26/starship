@@ -2,7 +2,7 @@
 
 Where the project stands, what's been done and what's next. Update this file at the end of each work session.
 
-**Last updated:** 18 Oct 2026
+**Last updated:** 23 Oct 2026
 **Phase:** Planning and design. No game code yet.
 **Next step:** Answer the open questions that block coding, then scaffold milestone 1.
 
@@ -36,6 +36,7 @@ Where the project stands, what's been done and what's next. Update this file at 
 - TypeScript + **Phaser 4** (pinned 4.2.1) + **Zod 4 Mini**; dev tools Vite and Vitest. Nothing else without approval.
 - Data-driven: all content in JSON under `/data`; **every gameplay number is tunable** (global knobs in `balance.json`).
 - Simulation is plain TypeScript with no Phaser; Phaser only draws and sends commands.
+- Extensibility: data adds behavior through a registry, Type Objects, component blocks (ECS-lite, no library), `extends` inheritance, commands, effects, triggers and a small condition language (ARCHITECTURE.md §2.5).
 - Ground rules: talk before big changes, test everything, small files, Buck play-tests before `main`.
 
 **World**
@@ -79,6 +80,7 @@ Where the project stands, what's been done and what's next. Update this file at 
 | 12 Oct 2026 | Home screen mockup (desktop and phone): map, screen tabs, build dropdowns, speed controls, selection panel. |
 | 17 Oct 2026 | Compared five pixel-art map styles; chose mixed 32/64 px. Home screen redone in that style with a factory and steam shovel. Art decision recorded. |
 | 18 Oct 2026 | Collected all open design questions into docs/open-questions.md. Added this progress file. |
+| 23 Oct 2026 | Extensibility patterns for data as code recorded (ARCHITECTURE.md §2.5). |
 
 ---
 
